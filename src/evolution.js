@@ -82,13 +82,19 @@ async function connectWithPairing(instanceName, phoneE164) {
   if (!digits) {
     return { ok: false, error: "phone_required" };
   }
+
+  const prep = await prepareForPairing(instanceName);
+  if (!prep.ok && prep.error !== "instance_not_found") {
+    if (prep.error === "instance_already_open") return prep;
+  }
+
   const path = `/instance/connect/${encodeURIComponent(instanceName)}?number=${encodeURIComponent(digits)}`;
 
   let lastResult = { ok: false, error: "pairing_code_not_returned" };
   for (let attempt = 1; attempt <= 4; attempt++) {
     lastResult = await evolutionFetch(path, { method: "GET" });
     if (lastResult.ok && extractPairingCode(lastResult.data)) {
-      return lastResult;
+      return { ...lastResult, pairing_code: extractPairingCode(lastResult.data) };
     }
     if (attempt < 4) {
       await new Promise((r) => setTimeout(r, 1500));
@@ -97,14 +103,47 @@ async function connectWithPairing(instanceName, phoneE164) {
   return lastResult;
 }
 
-async function createInstance(instanceName) {
+async function logoutInstance(instanceName) {
+  return evolutionFetch(`/instance/logout/${encodeURIComponent(instanceName)}`, {
+    method: "DELETE",
+  });
+}
+
+async function restartInstance(instanceName) {
+  return evolutionFetch(`/instance/restart/${encodeURIComponent(instanceName)}`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Se a instância ficou em "connecting" (ex.: clicou Get QR Code no Manager),
+ * a Evolution não gera pairing code — precisa logout antes.
+ */
+async function prepareForPairing(instanceName) {
+  const st = await connectionState(instanceName);
+  if (!st.ok) return st;
+  const mapped = mapConnectionState(st.data);
+  if (mapped === "open") {
+    return { ok: false, error: "instance_already_open", status: 409, data: st.data };
+  }
+  if (mapped === "qr") {
+    await logoutInstance(instanceName);
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return { ok: true, previous_state: mapped };
+}
+
+async function createInstance(instanceName, phoneE164) {
+  const digits = phoneE164 ? String(phoneE164).replace(/\D/g, "") : "";
+  const body = {
+    instanceName,
+    qrcode: false,
+    integration: "WHATSAPP-BAILEYS",
+  };
+  if (digits) body.number = digits;
   return evolutionFetch("/instance/create", {
     method: "POST",
-    body: JSON.stringify({
-      instanceName,
-      qrcode: false,
-      integration: "WHATSAPP-BAILEYS",
-    }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -220,6 +259,9 @@ module.exports = {
   createInstance,
   connectInstance,
   connectWithPairing,
+  logoutInstance,
+  restartInstance,
+  prepareForPairing,
   connectionState,
   mapConnectionState,
   extractQrBase64,

@@ -810,7 +810,7 @@ app.post("/api/v1/evolution/instances/:name/pair", auth, async (req, res) => {
   }
 
   if (create_if_missing) {
-    const created = await evolution.createInstance(name);
+    const created = await evolution.createInstance(name, phone_e164);
     if (!created.ok && created.status !== 409) {
       console.warn("[evolution] create instance:", created.error || created.status);
     }
@@ -818,7 +818,12 @@ app.post("/api/v1/evolution/instances/:name/pair", auth, async (req, res) => {
 
   const conn = await evolution.connectWithPairing(name, phone_e164);
   if (!conn.ok) {
-    return res.status(conn.status || 502).json(conn);
+    return res.status(conn.status || 502).json({
+      ...conn,
+      hint: conn.error === "pairing_code_not_returned"
+        ? "Evolution não devolveu pairingCode. Não clique Get QR Code antes; use GET /instance/connect/{name}?number=5561…"
+        : undefined,
+    });
   }
 
   const pairingCode = evolution.extractPairingCode(conn.data);
