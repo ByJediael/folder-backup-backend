@@ -95,6 +95,11 @@ function logEvent(event, payload = {}) {
   }).catch(() => {});
 }
 
+/** Sem auth — Docker / EasyPanel / load balancer */
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", service: "folder-backup-backend" });
+});
+
 app.get("/api/v1/health", auth, (_req, res) => {
   res.json({
     status: "ok",

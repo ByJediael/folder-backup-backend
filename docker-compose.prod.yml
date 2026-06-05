@@ -15,7 +15,7 @@ services:
       - ./data:/app/data
       - ./firebase/serviceAccount.json:/app/firebase/serviceAccount.json:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3

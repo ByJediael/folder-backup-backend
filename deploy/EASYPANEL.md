@@ -85,8 +85,11 @@ nano /opt/folder-backup-backend/firebase/serviceAccount.json
 ### 1.4 Domínio e porta
 
 - **Container port:** `8080`
+- **Health check (EasyPanel):** path `/health` (sem token). **Não** use `/api/v1/health` — exige `Authorization: Bearer`.
 - **Domain:** `backup.jediael.uk` (SSL Let's Encrypt no EasyPanel)
 - Publicar só **127.0.0.1:8080** no host se o proxy do EasyPanel já encaminha (compose já faz isso).
+
+Se o log ficar só em *"Waiting for service … to start"*, abra os **logs do container** (não só do orquestrador): build falhou, porta errada ou health check em 401.
 
 ### 1.5 Deploy
 
