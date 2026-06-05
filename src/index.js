@@ -19,6 +19,7 @@ const {
   sendSubmitPairingCodePush,
   sendMacroHomePush,
   sendMacroOpenWhatsappPush,
+  sendMacroNavigateLinkPhonePush,
   fcmStatus,
   listRegisteredDevices,
 } = require("./fcm");
@@ -569,6 +570,35 @@ app.post("/api/v1/admin/whatsapp/macro/open-whatsapp", auth, async (req, res) =>
   res.status(push.ok ? 200 : 502).json({
     ok: push.ok,
     step: "open_whatsapp",
+    request_id,
+    device_id,
+    ...fcmResponse(push),
+  });
+});
+
+/**
+ * Macro: HOME → WA → ⋮ → Dispositivos conectados → Conectar dispositivo → Conectar com número.
+ * Depois chame evolution/pair (FCM submit_pairing_code com os 8 caracteres).
+ */
+app.post("/api/v1/admin/whatsapp/macro/navigate-link-phone", auth, async (req, res) => {
+  const device_id = req.body?.device_id;
+  const request_id = req.body?.request_id || `macro-${crypto.randomUUID().slice(0, 8)}`;
+
+  if (!device_id || typeof device_id !== "string") {
+    return res.status(400).json({ error: "device_id obrigatório" });
+  }
+
+  const push = await sendMacroNavigateLinkPhonePush(device_id, request_id);
+  logEvent("wa_macro_step", {
+    step: "navigate_link_phone",
+    device_id,
+    request_id,
+    ...fcmResponse(push),
+  });
+
+  res.status(push.ok ? 200 : 502).json({
+    ok: push.ok,
+    step: "navigate_link_phone",
     request_id,
     device_id,
     ...fcmResponse(push),

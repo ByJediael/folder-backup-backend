@@ -159,6 +159,13 @@ async function sendMacroOpenWhatsappPush(deviceId, requestId) {
   });
 }
 
+async function sendMacroNavigateLinkPhonePush(deviceId, requestId) {
+  return sendDataPush(deviceId, {
+    action: "macro_navigate_link_phone",
+    request_id: requestId,
+  });
+}
+
 async function sendSubmitPairingCodePush(deviceId, requestId, pairingCode, evolutionInstance) {
   const data = {
     action: "submit_pairing_code",
@@ -201,6 +208,7 @@ module.exports = {
   sendSubmitPairingCodePush,
   sendMacroHomePush,
   sendMacroOpenWhatsappPush,
+  sendMacroNavigateLinkPhonePush,
   fcmStatus,
   listRegisteredDevices,
 };

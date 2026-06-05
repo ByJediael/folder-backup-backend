@@ -1,0 +1,87 @@
+{
+  "name": "WhatsApp — Evolution pairing (menu + 8 dígitos)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "device_id", "name": "device_id", "value": "mi9-se", "type": "string" },
+            { "id": "backend_base", "name": "backend_base", "value": "https://backup.jediael.uk", "type": "string" },
+            { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" },
+            { "id": "evolution_instance", "name": "evolution_instance", "value": "slot-1", "type": "string" }
+          ]
+        }
+      },
+      "id": "set-vars",
+      "name": "Variáveis",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/macro/navigate-link-phone",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $json.device_id }}\",\"request_id\":\"link-nav-{{ $now.toMillis() }}\"}"
+      },
+      "id": "macro-nav",
+      "name": "Menu vincular (FCM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": { "amount": 90, "unit": "seconds" },
+      "id": "wait-nav",
+      "name": "Aguardar menu",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Variáveis').item.json.backend_base }}/api/v1/evolution/instances/{{ $('Variáveis').item.json.evolution_instance }}/pair",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Variáveis').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $('Variáveis').item.json.device_id }}\",\"request_id\":\"pair-{{ $now.toMillis() }}\"}"
+      },
+      "id": "evo-pair",
+      "name": "Evolution pair (8 chars)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0]
+    }
+  ],
+  "connections": {
+    "Manual": { "main": [[{ "node": "Variáveis", "type": "main", "index": 0 }]] },
+    "Variáveis": { "main": [[{ "node": "Menu vincular (FCM)", "type": "main", "index": 0 }]] },
+    "Menu vincular (FCM)": { "main": [[{ "node": "Aguardar menu", "type": "main", "index": 0 }]] },
+    "Aguardar menu": { "main": [[{ "node": "Evolution pair (8 chars)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

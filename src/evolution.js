@@ -76,19 +76,25 @@ async function connectInstance(instanceName) {
   });
 }
 
-/** POST /instance/connect com número → pairing code (sem QR). */
+/** GET /instance/connect/{instance}?number=5511… → pairing code (sem QR). */
 async function connectWithPairing(instanceName, phoneE164) {
   const digits = String(phoneE164 || "").replace(/\D/g, "");
   if (!digits) {
     return { ok: false, error: "phone_required" };
   }
-  return evolutionFetch(`/instance/connect/${encodeURIComponent(instanceName)}`, {
-    method: "POST",
-    body: JSON.stringify({
-      instanceName,
-      number: digits,
-    }),
-  });
+  const path = `/instance/connect/${encodeURIComponent(instanceName)}?number=${encodeURIComponent(digits)}`;
+
+  let lastResult = { ok: false, error: "pairing_code_not_returned" };
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    lastResult = await evolutionFetch(path, { method: "GET" });
+    if (lastResult.ok && extractPairingCode(lastResult.data)) {
+      return lastResult;
+    }
+    if (attempt < 4) {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  return lastResult;
 }
 
 async function createInstance(instanceName) {

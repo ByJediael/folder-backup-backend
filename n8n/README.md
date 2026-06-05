@@ -61,6 +61,7 @@ Todos os nós HTTP usam: `{{ $json.backend_base }}/api/v1/...` + `Bearer {{ $jso
 | `wa-register-hero-sms.json` | Hero SMS getNumber → clear → register → código → status |
 | `wa-clear-session.json` | Limpar sessão WA no celular (igual botão Limpar na central) |
 | `wa-macro-open-whatsapp.json` | Teste isolado: macro HOME → Wait 2s → abrir WA pelo launcher |
+| `wa-evolution-pairing-ui.json` | Menu ⋮ → Dispositivos conectados → Conectar com número → Evolution pair (8 chars) |
 | `wa-montagem-factory.json` | Montagem E2E: Hero → clear → **macro HOME/open** → register → pair → export → clear |
 | `evo-disconnected-multi-device.json` | `evo_disconnected` → clear + switch no `device_id` do slot (6 aparelhos) |
 
@@ -70,12 +71,14 @@ Todos os nós HTTP usam: `{{ $json.backend_base }}/api/v1/...` + `Bearer {{ $jso
 2. Backend: `FIREBASE_SERVICE_ACCOUNT_PATH` válido; `device_id` em `data/fcm-tokens.json`.
 3. n8n: ajuste `backend_base`, `backend_token`, `device_id`, `hero_api_key` no nó **Variáveis**.
 4. Teste rápido: importe `wa-macro-open-whatsapp.json` → Execute (Manual) → veja HOME e ícone WA no celular.
-5. Montagem completa: `wa-montagem-factory.json` (Hero compra número + macro + cadastro + Evolution).
+5. Teste Evolution pairing: `wa-evolution-pairing-ui.json` (menu completo + código 8 caracteres).
+6. Montagem completa: `wa-montagem-factory.json` (Hero compra número + macro + cadastro + Evolution).
 
 Endpoints macro:
 
 - `POST /api/v1/admin/whatsapp/macro/home`
 - `POST /api/v1/admin/whatsapp/macro/open-whatsapp`
+- `POST /api/v1/admin/whatsapp/macro/navigate-link-phone` — HOME → WA → ⋮ → Dispositivos conectados → Conectar com número
 
 Body: `{ "device_id": "factory-phone" }` — Header: `Authorization: Bearer <token>`.
 
