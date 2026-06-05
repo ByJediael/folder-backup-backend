@@ -5,6 +5,7 @@ const path = require("path");
 const multer = require("multer");
 const { notifyN8n, isConfigured } = require("./n8n");
 const { appendEvent, readEvents } = require("./events");
+const deviceSessions = require("./device-sessions");
 const slots = require("./slots");
 const evolution = require("./evolution");
 const {
@@ -19,6 +20,7 @@ const {
   sendMacroHomePush,
   sendMacroOpenWhatsappPush,
   fcmStatus,
+  listRegisteredDevices,
 } = require("./fcm");
 const { getStatus, setDispatched, updateFromDevice } = require("./whatsapp-switch");
 const {
@@ -179,6 +181,60 @@ app.put("/api/v1/devices/:deviceId/fcm-token", auth, (req, res) => {
   }
   logEvent("fcm_registered", { device_id: deviceId, slot_id: slot?.slot_id });
   res.json({ ok: true, device_id: deviceId });
+});
+
+/** APK envia inventário de sessões exportadas no celular. */
+app.put("/api/v1/devices/:deviceId/sessions", auth, (req, res) => {
+  const deviceId = req.params.deviceId;
+  const raw = req.body?.sessions;
+  if (!Array.isArray(raw)) {
+    return res.status(400).json({ error: "sessions (array) obrigatório" });
+  }
+  const sessions = raw
+    .map((s) => ({
+      folder_name: String(s.folder_name || s.folderName || "").trim(),
+      label: s.label || null,
+      exported_at: s.exported_at || s.exportedAt || null,
+      file_count: s.file_count ?? s.fileCount ?? null,
+      has_user_de: Boolean(s.has_user_de ?? s.hasUserDe),
+      manifest_version: s.manifest_version ?? s.manifestVersion ?? 1,
+    }))
+    .filter((s) => s.folder_name);
+  deviceSessions.upsertDeviceSessions(deviceId, sessions);
+  logEvent("sessions_inventory", { device_id: deviceId, count: sessions.length });
+  res.json({ ok: true, device_id: deviceId, count: sessions.length });
+});
+
+app.get("/api/v1/admin/devices", auth, (_req, res) => {
+  const devices = listRegisteredDevices().map((d) => {
+    const slot = slots.findByDeviceId(d.device_id);
+    const inv = deviceSessions.readAll()[d.device_id];
+    return {
+      ...d,
+      slot_id: slot?.slot_id || null,
+      slot_label: slot?.label || null,
+      phone_e164: slot?.phone_e164 || null,
+      session_label: slot?.session_label || null,
+      fcm_registered: true,
+      sessions_count: inv?.sessions?.length || 0,
+      sessions_updated_at: inv?.updated_at || null,
+    };
+  });
+  res.json({ devices, total: devices.length });
+});
+
+app.get("/api/v1/admin/whatsapp/sessions", auth, (_req, res) => {
+  const sessions = deviceSessions.listAllFlat();
+  res.json({ sessions, total: sessions.length });
+});
+
+/** Instâncias Evolution + estado + slot vinculado (aba Evolution na central). */
+app.get("/api/v1/admin/evolution/overview", auth, async (_req, res) => {
+  const overview = await evolution.listInstancesOverview(slots);
+  if (!overview.ok) {
+    return res.status(overview.status || 503).json(overview);
+  }
+  res.json(overview);
 });
 
 app.get("/api/v1/devices/:deviceId/commands", auth, (req, res) => {
@@ -847,13 +903,17 @@ app.post("/api/v1/admin/n8n/test", auth, async (_req, res) => {
   }
 
   const n8n = await notifyN8n("test", { message: "folder-backup-backend ping" });
-  res.status(n8n.ok ? 200 : 502).json({
+  // 200 mesmo se o n8n falhar — EasyPanel substitui HTTP 502 por página HTML e esconde o JSON.
+  res.json({
     ok: n8n.ok,
     backend: "ok",
     n8n_configured: true,
     n8n_ok: n8n.ok,
     n8n_status: n8n.status ?? null,
     error: n8n.error ?? null,
+    hint: n8n.ok
+      ? null
+      : "Confira N8N_WEBHOOK_URL (Production URL do webhook no n8n, workflow ATIVO)",
   });
 });
 

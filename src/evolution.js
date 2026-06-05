@@ -149,6 +149,64 @@ function extractPairingCode(data) {
   return null;
 }
 
+function instanceNameFromRaw(inst) {
+  if (!inst) return null;
+  if (typeof inst === "string") return inst;
+  return (
+    inst.instanceName ||
+    inst.name ||
+    inst.instance?.instanceName ||
+    inst.instance?.name ||
+    null
+  );
+}
+
+async function listInstancesOverview(slotsApi) {
+  if (!EVOLUTION_ENABLED) {
+    return { ok: true, enabled: false, instances: [], error: "evolution_disabled" };
+  }
+  const result = await fetchInstances();
+  if (!result.ok) {
+    return { ok: false, enabled: true, instances: [], error: result.error, status: result.status };
+  }
+
+  const rows = await Promise.all(
+    (result.instances || []).map(async (inst) => {
+      const name = instanceNameFromRaw(inst);
+      if (!name) return null;
+      const slot = slotsApi?.findByEvolutionInstance?.(name) || null;
+      const st = await connectionState(name);
+      const state = st.ok
+        ? mapConnectionState(st.data)
+        : slot?.evo_status || mapConnectionState(inst);
+      const owner =
+        inst.owner ||
+        inst.number ||
+        inst.profileName ||
+        inst.instance?.owner ||
+        slot?.phone_e164 ||
+        null;
+      return {
+        instance: name,
+        state,
+        owner,
+        integration: inst.integration || inst.instance?.integration || null,
+        slot_id: slot?.slot_id || null,
+        slot_label: slot?.label || null,
+        device_id: slot?.device_id || null,
+        phone_e164: slot?.phone_e164 || null,
+        last_message: slot?.last_message || null,
+      };
+    }),
+  );
+
+  return {
+    ok: true,
+    enabled: true,
+    instances: rows.filter(Boolean),
+  };
+}
+
 module.exports = {
   isEnabled,
   statusInfo,
@@ -160,4 +218,6 @@ module.exports = {
   mapConnectionState,
   extractQrBase64,
   extractPairingCode,
+  instanceNameFromRaw,
+  listInstancesOverview,
 };

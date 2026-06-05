@@ -13,14 +13,14 @@
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "device_id", "name": "device_id", "value": "factory-phone", "type": "string" },
+            { "id": "device_id", "name": "device_id", "value": "mi9-se", "type": "string" },
             { "id": "session_label", "name": "session_label", "value": "montagem-1", "type": "string" },
             { "id": "display_name", "name": "display_name", "value": "Conta Backup", "type": "string" },
             { "id": "evolution_instance", "name": "evolution_instance", "value": "wa-montagem-1", "type": "string" },
             { "id": "hero_api_key", "name": "hero_api_key", "value": "SUA_API_KEY_HERO", "type": "string" },
             { "id": "hero_service", "name": "hero_service", "value": "wa", "type": "string" },
             { "id": "hero_country", "name": "hero_country", "value": "73", "type": "string" },
-            { "id": "backend_base", "name": "backend_base", "value": "http://192.168.1.9:8080", "type": "string" },
+            { "id": "backend_base", "name": "backend_base", "value": "https://backup.jediael.uk", "type": "string" },
             { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" },
             { "id": "gerente_webhook_url", "name": "gerente_webhook_url", "value": "https://SEU-GERENTE/webhook/zap-registrado", "type": "string" }
           ]

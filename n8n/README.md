@@ -1,6 +1,56 @@
 # Workflows n8n
 
-Fluxo com FCM: **n8n → backend (criar job + push) → app sincroniza sozinho → webhooks de evento**.
+Fluxo com FCM: **n8n → backend (HTTP) → FCM → APK no celular** · eventos: **backend → n8n (webhook)**.
+
+## Começar agora (VPS — backup.jediael.uk)
+
+### Passo 1 — Eventos do backend → n8n
+
+1. n8n → **Workflows** → **Import from File** → `on-backup-event.json`
+2. Abra o workflow → nó **Webhook backup-events** → copie a **Production URL**  
+   Ex.: `https://n8n.jediael.uk/webhook/backup-events`
+3. EasyPanel → **back_apk** → **Ambiente**:
+
+```env
+N8N_WEBHOOK_URL=https://n8n.jediael.uk/webhook/backup-events
+```
+
+4. **Ative** o workflow no n8n (toggle verde) e **Implantar** o backend.
+5. Teste:
+
+```bash
+curl -skS -X POST -H "Authorization: Bearer 12345678" \
+  https://backup.jediael.uk/api/v1/admin/n8n/test
+```
+
+No n8n deve aparecer uma execução com evento `test`.
+
+### Passo 2 — Primeiro comando no celular via n8n
+
+1. Importe `wa-clear-session.json` (ou `wa-macro-open-whatsapp.json` para teste visual).
+2. No nó **Variáveis**, confira:
+
+| Campo | Valor |
+|--------|--------|
+| `backend_base` | `https://backup.jediael.uk` |
+| `backend_token` | mesmo `BACKUP_API_TOKEN` do backend |
+| `device_id` | `mi9-se` |
+
+3. **Execute workflow** (manual) → celular deve limpar WA / ir para HOME+WA.
+4. Celular: tela desbloqueada, **acessibilidade** do app ativa.
+
+### Passo 3 — Fluxos maiores
+
+| Ordem sugerida | Arquivo |
+|----------------|---------|
+| Restaurar sessão | `switch-whatsapp-session.json` |
+| Macro launcher | `wa-macro-open-whatsapp.json` |
+| Cadastro + Hero SMS | `wa-register-hero-sms.json` |
+| Montagem completa | `wa-montagem-factory.json` |
+| Evolution caiu | `evo-disconnected-multi-device.json` |
+| Backup de pasta | `create-backup-job.json` |
+
+Todos os nós HTTP usam: `{{ $json.backend_base }}/api/v1/...` + `Bearer {{ $json.backend_token }}`.
 
 | Arquivo | Uso |
 |---------|-----|
@@ -9,6 +59,7 @@ Fluxo com FCM: **n8n → backend (criar job + push) → app sincroniza sozinho �
 | `create-backup-job-local.json` | **Cria** job: `POST http://192.168.1.9:8080/api/v1/admin/jobs` (só na mesma LAN) |
 | `create-backup-job-whatsapp-w4b.json` | WhatsApp Business dados (`/data/data/com.whatsapp.w4b`, root) |
 | `wa-register-hero-sms.json` | Hero SMS getNumber → clear → register → código → status |
+| `wa-clear-session.json` | Limpar sessão WA no celular (igual botão Limpar na central) |
 | `wa-macro-open-whatsapp.json` | Teste isolado: macro HOME → Wait 2s → abrir WA pelo launcher |
 | `wa-montagem-factory.json` | Montagem E2E: Hero → clear → **macro HOME/open** → register → pair → export → clear |
 | `evo-disconnected-multi-device.json` | `evo_disconnected` → clear + switch no `device_id` do slot (6 aparelhos) |

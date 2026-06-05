@@ -1,9 +1,9 @@
 {
-  "name": "WhatsApp — trocar sessão (FCM)",
+  "name": "WhatsApp — limpar sessão (FCM)",
   "nodes": [
     {
       "parameters": {},
-      "id": "trigger",
+      "id": "manual",
       "name": "Manual",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -13,15 +13,14 @@
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "session_label", "name": "session_label", "value": "numero-timv2", "type": "string" },
             { "id": "device_id", "name": "device_id", "value": "mi9-se", "type": "string" },
             { "id": "backend_base", "name": "backend_base", "value": "https://backup.jediael.uk", "type": "string" },
             { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" }
           ]
         }
       },
-      "id": "set",
-      "name": "Sessão",
+      "id": "set-vars",
+      "name": "Variáveis",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [220, 0]
@@ -29,7 +28,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/switch",
+        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/clear",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -39,18 +38,18 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"device_id\":\"{{ $json.device_id }}\",\"session_label\":\"{{ $json.session_label }}\",\"open_whatsapp\":true}"
+        "jsonBody": "={\"device_id\":\"{{ $json.device_id }}\",\"request_id\":\"n8n-clear-{{ $now.toMillis() }}\"}"
       },
-      "id": "http",
-      "name": "Backend switch",
+      "id": "clear-wa",
+      "name": "Limpar WA",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, 0],
-      "notes": "Restaura sessão exportada no celular (mesmo efeito do botão Restaurar na central)"
+      "position": [440, 0]
     }
   ],
   "connections": {
-    "Manual": { "main": [[{ "node": "Sessão", "type": "main", "index": 0 }]] },
-    "Sessão": { "main": [[{ "node": "Backend switch", "type": "main", "index": 0 }]] }
-  }
+    "Manual": { "main": [[{ "node": "Variáveis", "type": "main", "index": 0 }]] },
+    "Variáveis": { "main": [[{ "node": "Limpar WA", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
 }

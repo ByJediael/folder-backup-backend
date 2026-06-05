@@ -180,6 +180,14 @@ function fcmStatus() {
   };
 }
 
+function listRegisteredDevices() {
+  const tokens = readTokens();
+  return Object.entries(tokens).map(([device_id, entry]) => ({
+    device_id,
+    fcm_updated_at: entry?.updated_at || null,
+  }));
+}
+
 module.exports = {
   isEnabled,
   saveFcmToken,
@@ -194,4 +202,5 @@ module.exports = {
   sendMacroHomePush,
   sendMacroOpenWhatsappPush,
   fcmStatus,
+  listRegisteredDevices,
 };

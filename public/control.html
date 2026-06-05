@@ -143,6 +143,50 @@
       border-radius: 8px;
     }
     .msg { font-size: 0.8rem; color: var(--muted); margin-top: 8px; min-height: 2em; }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 24px 0;
+      border-bottom: 1px solid var(--surface2);
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .tab {
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .table-wrap {
+      background: var(--surface);
+      border-radius: 12px;
+      border: 1px solid var(--surface2);
+      overflow: auto;
+    }
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    table.data th, table.data td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--surface2);
+    }
+    table.data th { color: var(--muted); font-weight: 600; }
+    table.data tr:last-child td { border-bottom: none; }
+    .empty { padding: 24px; color: var(--muted); text-align: center; }
   </style>
 </head>
 <body>
@@ -165,9 +209,27 @@
     <button onclick="logout()">Sair</button>
   </header>
 
+  <nav class="tabs">
+    <button type="button" class="tab active" data-tab="operacao" onclick="switchTab('operacao')">Operação</button>
+    <button type="button" class="tab" data-tab="celulares" onclick="switchTab('celulares')">Celulares (APK)</button>
+    <button type="button" class="tab" data-tab="evolution" onclick="switchTab('evolution')">Evolution</button>
+    <button type="button" class="tab" data-tab="sessoes" onclick="switchTab('sessoes')">Backups (celular)</button>
+  </nav>
+
   <main>
-    <div>
-      <div class="grid" id="slots-grid"></div>
+    <div style="grid-column: 1 / -1">
+      <div id="panel-operacao" class="tab-panel active">
+        <div class="grid" id="slots-grid"></div>
+      </div>
+      <div id="panel-celulares" class="tab-panel">
+        <div class="table-wrap" id="devices-table"></div>
+      </div>
+      <div id="panel-evolution" class="tab-panel">
+        <div class="table-wrap" id="evolution-table"></div>
+      </div>
+      <div id="panel-sessoes" class="tab-panel">
+        <div class="table-wrap" id="sessions-table"></div>
+      </div>
     </div>
     <div class="panel">
       <h3>Eventos recentes</h3>
@@ -194,6 +256,137 @@
     })();
     let pollTimer = null;
     let qrInstance = null;
+    let activeTab = "operacao";
+
+    function switchTab(name) {
+      activeTab = name;
+      document.querySelectorAll(".tab").forEach((t) => {
+        t.classList.toggle("active", t.dataset.tab === name);
+      });
+      document.querySelectorAll(".tab-panel").forEach((p) => {
+        p.classList.toggle("active", p.id === "panel-" + name);
+      });
+    }
+
+    function fmtTime(iso) {
+      if (!iso) return "—";
+      try {
+        return new Date(iso).toLocaleString("pt-BR");
+      } catch {
+        return iso;
+      }
+    }
+
+    function evoStateBadge(state) {
+      const s = (state || "unknown").toLowerCase();
+      if (s === "open") return '<span class="badge open">conectado</span>';
+      if (s === "close") return '<span class="badge close">desconectado</span>';
+      if (s === "qr") return '<span class="badge qr">aguardando QR</span>';
+      return '<span class="badge offline">' + esc(state) + '</span>';
+    }
+
+    function renderEvolution(data) {
+      const el = document.getElementById("evolution-table");
+      if (!data.enabled) {
+        el.innerHTML = '<p class="empty">Evolution desativado — configure EVOLUTION_BASE_URL e EVOLUTION_API_KEY no back_apk e Implante.</p>';
+        return;
+      }
+      const instances = data.instances || [];
+      if (!instances.length) {
+        el.innerHTML = '<p class="empty">Nenhuma instância no Evolution — crie em evolution.jediael.uk ou use Cadastrar/Pair na montagem.</p>';
+        return;
+      }
+      el.innerHTML = `
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Instância</th>
+              <th>Estado</th>
+              <th>Número / owner</th>
+              <th>Slot / celular</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${instances.map((i) => `
+              <tr>
+                <td><strong>${esc(i.instance)}</strong></td>
+                <td>${evoStateBadge(i.state)}</td>
+                <td>${esc(i.owner || i.phone_e164 || "—")}</td>
+                <td>${esc(i.slot_label || i.device_id || "—")}</td>
+                <td class="actions">
+                  <button onclick="showQr('${esc(i.instance)}')">QR</button>
+                  <button onclick="refreshEvoState('${esc(i.instance)}')">Estado</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    function renderDevices(devices) {
+      const el = document.getElementById("devices-table");
+      if (!devices.length) {
+        el.innerHTML = '<p class="empty">Nenhum celular conectado — abra o APK, configure URL/token e toque Salvar.</p>';
+        return;
+      }
+      el.innerHTML = `
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Device ID</th>
+              <th>Slot</th>
+              <th>FCM</th>
+              <th>Sessões no celular</th>
+              <th>Último sync</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${devices.map((d) => `
+              <tr>
+                <td><strong>${esc(d.device_id)}</strong></td>
+                <td>${esc(d.slot_label || d.slot_id || "—")}</td>
+                <td><span class="badge">conectado</span></td>
+                <td>${d.sessions_count ?? 0}</td>
+                <td>${esc(fmtTime(d.sessions_updated_at || d.fcm_updated_at))}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    function renderSessions(sessions) {
+      const el = document.getElementById("sessions-table");
+      if (!sessions.length) {
+        el.innerHTML = '<p class="empty">Nenhum backup exportado no celular — exporte no APK ou toque Salvar para sincronizar.</p>';
+        return;
+      }
+      el.innerHTML = `
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Celular</th>
+              <th>Rótulo</th>
+              <th>Pasta</th>
+              <th>Arquivos</th>
+              <th>user_de</th>
+              <th>Exportado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sessions.map((s) => `
+              <tr>
+                <td>${esc(s.device_id)}</td>
+                <td><strong>${esc(s.label || "—")}</strong></td>
+                <td class="meta">${esc(s.folder_name)}</td>
+                <td>${s.file_count ?? "—"}</td>
+                <td>${s.has_user_de ? "sim" : "não"}</td>
+                <td>${esc(fmtTime(s.exported_at))}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>`;
+    }
 
     function token() {
       return sessionStorage.getItem("backup_token") || "";
@@ -298,15 +491,37 @@
 
     async function refresh() {
       try {
-        const data = await api("/dashboard");
-        renderSlots(data.slots || []);
-        renderEvents(data.events || []);
-        const fcm = data.fcm?.registered_devices?.length || 0;
-        const evo = data.evolution?.enabled ? "Evolution ativo" : "Evolution desativado";
+        const [dash, devicesData, sessionsData, evoData] = await Promise.all([
+          api("/dashboard"),
+          api("/admin/devices"),
+          api("/admin/whatsapp/sessions"),
+          api("/admin/evolution/overview").catch((e) => ({
+            enabled: false,
+            instances: [],
+            error: e.message,
+          })),
+        ]);
+        renderSlots(dash.slots || []);
+        renderEvents(dash.events || []);
+        renderDevices(devicesData.devices || []);
+        renderSessions(sessionsData.sessions || []);
+        renderEvolution(evoData);
+        const fcm = devicesData.total || 0;
+        const evoOpen = (evoData.instances || []).filter((i) => i.state === "open").length;
+        const evo = evoData.enabled ? `${evoOpen}/${evoData.instances?.length || 0} Evolution` : "Evolution off";
         document.getElementById("header-meta").textContent =
-          `${data.slots?.length || 0} slots · ${fcm} FCM · ${evo}`;
+          `${dash.slots?.length || 0} slots · ${fcm} APK · ${evo}`;
       } catch (err) {
         console.error(err);
+      }
+    }
+
+    async function refreshEvoState(instance) {
+      try {
+        await api("/evolution/instances/" + encodeURIComponent(instance) + "/state");
+        await refresh();
+      } catch (e) {
+        alert(e.message);
       }
     }
 

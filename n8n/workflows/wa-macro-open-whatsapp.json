@@ -13,8 +13,8 @@
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "device_id", "name": "device_id", "value": "factory-phone", "type": "string" },
-            { "id": "backend_base", "name": "backend_base", "value": "http://192.168.1.9:8080", "type": "string" },
+            { "id": "device_id", "name": "device_id", "value": "mi9-se", "type": "string" },
+            { "id": "backend_base", "name": "backend_base", "value": "https://backup.jediael.uk", "type": "string" },
             { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" }
           ]
         }

@@ -35,6 +35,7 @@ async function notifyN8n(event, payload) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       console.warn(`[n8n] ${event} → HTTP ${res.status} ${url}`);
