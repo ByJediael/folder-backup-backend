@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Montagem WhatsApp — fábrica</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface2: #262626;
+      --primary: #81c784;
+      --warn: #ffb74d;
+      --text: #ececec;
+      --muted: #9e9e9e;
+      --code: #42a5f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--surface2);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { margin: 0; font-size: 1.2rem; color: var(--primary); }
+    main { max-width: 720px; margin: 0 auto; padding: 20px 24px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--surface2);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      border: 1px solid var(--surface2);
+      border-radius: 6px;
+      background: var(--surface2);
+      color: var(--text);
+    }
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--surface2);
+      color: var(--text);
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+    button.primary { background: #2e7d32; color: #fff; }
+    button.warn { background: #e65100; color: #fff; }
+    .pairing {
+      font-size: 2rem;
+      letter-spacing: 0.35em;
+      font-weight: 700;
+      color: var(--code);
+      text-align: center;
+      padding: 16px;
+      background: var(--surface2);
+      border-radius: 8px;
+      margin: 12px 0;
+    }
+    .step { font-size: 0.9rem; padding: 6px 0; border-bottom: 1px solid var(--surface2); }
+    .step.done { color: var(--primary); }
+    .meta { font-size: 0.8rem; color: var(--muted); }
+    #auth-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.85);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    #auth-overlay.hidden { display: none; }
+    .auth-card {
+      background: var(--surface);
+      padding: 24px;
+      border-radius: 12px;
+      width: min(400px, 90vw);
+    }
+    a { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <div id="auth-overlay">
+    <div class="auth-card">
+      <h2>Token da API</h2>
+      <input id="token-input" type="password" placeholder="BACKUP_API_TOKEN" />
+      <button class="primary" style="width:100%" onclick="saveToken()">Entrar</button>
+    </div>
+  </div>
+
+  <header>
+    <div>
+      <h1>Montagem automática (fábrica)</h1>
+      <div class="meta">Hero SMS → cadastro → Evolution pairing → limpar celular</div>
+    </div>
+    <div>
+      <a href="/">Central</a>
+      <button onclick="refresh()">Atualizar</button>
+      <button onclick="logout()">Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <label>Device ID (celular fábrica)</label>
+      <input id="device_id" value="factory-phone" />
+      <label>session_label</label>
+      <input id="session_label" value="montagem-1" />
+      <label>evolution_instance</label>
+      <input id="evolution_instance" value="wa-montagem-1" />
+      <label>phone_e164 (após Hero ou manual)</label>
+      <input id="phone_e164" placeholder="+57300..." />
+      <label>display_name</label>
+      <input id="display_name" value="Conta Backup" />
+      <label>URL webhook n8n (workflow wa-montagem-factory)</label>
+      <input id="n8n_webhook" placeholder="https://n8n.../webhook/..." />
+      <button class="primary" onclick="mountStart()">Registrar início (API)</button>
+      <button class="primary" onclick="triggerN8n()">Disparar n8n</button>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Pairing code (Evolution)</h3>
+      <div class="pairing" id="pairing-display">—</div>
+      <p class="meta" id="pairing-meta">Aguardando evento evo_pairing_code…</p>
+      <button class="primary" onclick="evolutionPair()">Gerar pairing + FCM</button>
+      <button onclick="pollEvoState()">Estado Evolution</button>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Macro (estilo pessoa)</h3>
+      <button onclick="macroStep('home')">Ir para HOME</button>
+      <button class="primary" onclick="macroStep('open-whatsapp')">Abrir WhatsApp (launcher)</button>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Passos manuais</h3>
+      <button class="warn" onclick="step('clear')">1. Limpar WA</button>
+      <button onclick="step('register')">2. Cadastrar (FCM)</button>
+      <button onclick="step('register-code')">3. Código SMS</button>
+      <button onclick="step('export')">4. Exportar</button>
+      <button class="warn" onclick="step('clear')">5. Limpar (fim)</button>
+      <input id="sms_code" placeholder="código SMS 6 dígitos" maxlength="8" />
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Status da montagem</h3>
+      <div id="steps-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Eventos recentes</h3>
+      <div id="events-list" class="meta"></div>
+    </div>
+  </main>
+
+  <script>
+    const API_BASE = (() => {
+      const origin = window.location.origin;
+      const path = window.location.pathname || "";
+      if (path.includes("/webhook")) return origin + "/webhook/api/v1";
+      return origin + "/api/v1";
+    })();
+
+    const MOUNT_EVENTS = [
+      "wa_macro_step",
+      "wa_mount_step",
+      "wa_register_requested",
+      "wa_register_code_sent",
+      "wa_register_status",
+      "evo_pairing_code",
+      "evo_connected",
+      "evo_connection_update",
+      "whatsapp_clear_requested",
+    ];
+
+    function token() {
+      return sessionStorage.getItem("backup_token") || "";
+    }
+
+    function saveToken() {
+      const t = document.getElementById("token-input").value.trim();
+      if (!t) return alert("Informe o token");
+      sessionStorage.setItem("backup_token", t);
+      document.getElementById("auth-overlay").classList.add("hidden");
+      refresh();
+      setInterval(refresh, 8000);
+    }
+
+    function logout() {
+      sessionStorage.removeItem("backup_token");
+      document.getElementById("auth-overlay").classList.remove("hidden");
+    }
+
+    function fields() {
+      return {
+        device_id: document.getElementById("device_id").value.trim(),
+        session_label: document.getElementById("session_label").value.trim(),
+        evolution_instance: document.getElementById("evolution_instance").value.trim(),
+        phone_e164: document.getElementById("phone_e164").value.trim(),
+        display_name: document.getElementById("display_name").value.trim(),
+      };
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(API_BASE + path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token(),
+          ...(options.headers || {}),
+        },
+      });
+      const text = await res.text();
+      let data;
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+      if (res.status === 401) {
+        logout();
+        throw new Error("Não autorizado");
+      }
+      if (!res.ok) throw new Error(data.error || data.message || "HTTP " + res.status);
+      return data;
+    }
+
+    async function mountStart() {
+      const f = fields();
+      try {
+        await api("/admin/whatsapp/mount/start", {
+          method: "POST",
+          body: JSON.stringify(f),
+        });
+        alert("Montagem registrada — use n8n ou passos manuais");
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function triggerN8n() {
+      const url = document.getElementById("n8n_webhook").value.trim();
+      if (!url) return alert("Informe a URL do webhook n8n (workflow wa-montagem-factory)");
+      const f = fields();
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(f),
+        });
+        if (!res.ok) throw new Error("n8n HTTP " + res.status);
+        alert("Workflow n8n disparado");
+      } catch (e) { alert(e.message); }
+    }
+
+    async function evolutionPair() {
+      const f = fields();
+      if (!f.phone_e164) return alert("Informe phone_e164");
+      try {
+        const data = await api(
+          "/evolution/instances/" + encodeURIComponent(f.evolution_instance) + "/pair",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              device_id: f.device_id,
+              phone_e164: f.phone_e164,
+              request_id: "mount-" + Date.now().toString(36),
+              create_if_missing: true,
+            }),
+          },
+        );
+        if (data.pairing_code) {
+          document.getElementById("pairing-display").textContent = data.pairing_code;
+          document.getElementById("pairing-meta").textContent =
+            "FCM: " + (data.fcm_ok ? "ok" : "falhou") + " · estado: " + (data.connection_state || "—");
+        }
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function pollEvoState() {
+      const inst = fields().evolution_instance;
+      try {
+        const data = await api("/evolution/instances/" + encodeURIComponent(inst) + "/state");
+        alert("Evolution " + inst + ": " + (data.state || "?"));
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function macroStep(step) {
+      const f = fields();
+      try {
+        await api("/admin/whatsapp/macro/" + step, {
+          method: "POST",
+          body: JSON.stringify({
+            device_id: f.device_id,
+            request_id: "mount-macro-" + Date.now().toString(36),
+          }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function step(name) {
+      const f = fields();
+      const request_id = "mount-" + Date.now().toString(36);
+      try {
+        if (name === "clear") {
+          await api("/admin/whatsapp/clear", {
+            method: "POST",
+            body: JSON.stringify({ device_id: f.device_id, request_id }),
+          });
+        } else if (name === "register") {
+          if (!f.phone_e164) return alert("phone_e164 obrigatório");
+          await api("/admin/whatsapp/register", {
+            method: "POST",
+            body: JSON.stringify({
+              device_id: f.device_id,
+              phone_e164: f.phone_e164,
+              session_label: f.session_label,
+              display_name: f.display_name,
+              request_id,
+            }),
+          });
+        } else if (name === "register-code") {
+          const code = document.getElementById("sms_code").value.trim();
+          if (!code) return alert("Informe o código SMS");
+          await api("/admin/whatsapp/register-code", {
+            method: "POST",
+            body: JSON.stringify({ device_id: f.device_id, code, request_id }),
+          });
+        } else if (name === "export") {
+          await api("/admin/whatsapp/export", {
+            method: "POST",
+            body: JSON.stringify({
+              device_id: f.device_id,
+              session_label: f.session_label,
+              request_id,
+            }),
+          });
+        }
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    function renderSteps(events) {
+      const seen = new Set();
+      const steps = [];
+      for (const e of events) {
+        if (!MOUNT_EVENTS.includes(e.event)) continue;
+        const key = e.event + (e.request_id || "");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        steps.push(e);
+      }
+      const el = document.getElementById("steps-list");
+      if (!steps.length) {
+        el.innerHTML = '<p class="meta">Nenhum passo registrado ainda</p>';
+        return;
+      }
+      el.innerHTML = steps.map((s) => {
+        const done = s.event === "evo_connected" || s.event === "wa_register_status";
+        return `<div class="step ${done ? "done" : ""}"><strong>${s.event}</strong> — ${s.at || ""}<br>${s.message || s.pairing_code || ""}</div>`;
+      }).join("");
+    }
+
+    function renderEvents(events) {
+      const mount = events.filter((e) => MOUNT_EVENTS.includes(e.event));
+      const latestPair = mount.find((e) => e.event === "evo_pairing_code");
+      if (latestPair?.pairing_code) {
+        document.getElementById("pairing-display").textContent = latestPair.pairing_code;
+        document.getElementById("pairing-meta").textContent =
+          (latestPair.phone_e164 || "") + " · " + (latestPair.evolution_instance || "");
+      }
+      renderSteps(mount);
+      const el = document.getElementById("events-list");
+      el.innerHTML = mount.slice(0, 12).map((e) =>
+        `<div style="padding:6px 0;border-bottom:1px solid var(--surface2)"><strong>${e.event}</strong> ${e.at || ""}<br>${e.message || e.pairing_code || ""}</div>`,
+      ).join("") || "<p>Nenhum evento</p>";
+    }
+
+    async function refresh() {
+      try {
+        const data = await api("/dashboard");
+        renderEvents(data.events || []);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (token()) {
+      document.getElementById("auth-overlay").classList.add("hidden");
+      refresh();
+      setInterval(refresh, 8000);
+    }
+  </script>
+</body>
+</html>

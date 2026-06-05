@@ -1,0 +1,387 @@
+{
+  "name": "WhatsApp — montagem fábrica (Hero + Evolution + clear)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Manual / Webhook",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "device_id", "name": "device_id", "value": "factory-phone", "type": "string" },
+            { "id": "session_label", "name": "session_label", "value": "montagem-1", "type": "string" },
+            { "id": "display_name", "name": "display_name", "value": "Conta Backup", "type": "string" },
+            { "id": "evolution_instance", "name": "evolution_instance", "value": "wa-montagem-1", "type": "string" },
+            { "id": "hero_api_key", "name": "hero_api_key", "value": "SUA_API_KEY_HERO", "type": "string" },
+            { "id": "hero_service", "name": "hero_service", "value": "wa", "type": "string" },
+            { "id": "hero_country", "name": "hero_country", "value": "73", "type": "string" },
+            { "id": "backend_base", "name": "backend_base", "value": "http://192.168.1.9:8080", "type": "string" },
+            { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" },
+            { "id": "gerente_webhook_url", "name": "gerente_webhook_url", "value": "https://SEU-GERENTE/webhook/zap-registrado", "type": "string" }
+          ]
+        }
+      },
+      "id": "set-vars",
+      "name": "Variáveis",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=getNumber&api_key={{ $json.hero_api_key }}&service={{ $json.hero_service }}&country={{ $json.hero_country }}",
+        "options": {}
+      },
+      "id": "hero-get-number",
+      "name": "Hero SMS getNumber",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.data ?? $input.first().json.body ?? '';\nconst text = typeof raw === 'string' ? raw : JSON.stringify(raw);\nlet activationId = '';\nlet phone = '';\nif (text.includes('ACCESS_NUMBER')) {\n  const parts = text.split(':');\n  activationId = parts[1] || '';\n  phone = parts[2] || '';\n}\nif (!phone.startsWith('+')) phone = '+' + phone.replace(/\\D/g, '');\nconst vars = $('Variáveis').first().json;\nreturn [{\n  json: {\n    ...vars,\n    activation_id: activationId,\n    phone_e164: phone,\n    request_id: 'mount-' + Math.random().toString(36).slice(2, 10)\n  }\n}];"
+      },
+      "id": "parse-number",
+      "name": "Parse número Hero",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/mount/start",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $json.device_id }}\",\"session_label\":\"{{ $json.session_label }}\",\"evolution_instance\":\"{{ $json.evolution_instance }}\",\"phone_e164\":\"{{ $json.phone_e164 }}\"}"
+      },
+      "id": "mount-start",
+      "name": "API mount/start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, -120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse número Hero').item.json.backend_base }}/api/v1/admin/whatsapp/clear",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Parse número Hero').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $('Parse número Hero').item.json.device_id }}\",\"request_id\":\"{{ $('Parse número Hero').item.json.request_id }}-clear1\"}"
+      },
+      "id": "clear-wa-1",
+      "name": "Limpar WA (início)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": { "amount": 10, "unit": "seconds" },
+      "id": "wait-clear",
+      "name": "Aguardar limpar",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse número Hero').item.json.backend_base }}/api/v1/admin/whatsapp/macro/home",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Parse número Hero').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $('Parse número Hero').item.json.device_id }}\",\"request_id\":\"{{ $('Parse número Hero').item.json.request_id }}-home\"}"
+      },
+      "id": "macro-home",
+      "name": "Macro HOME",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": { "amount": 2, "unit": "seconds" },
+      "id": "wait-macro-home",
+      "name": "Aguardar (menu)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse número Hero').item.json.backend_base }}/api/v1/admin/whatsapp/macro/open-whatsapp",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Parse número Hero').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $('Parse número Hero').item.json.device_id }}\",\"request_id\":\"{{ $('Parse número Hero').item.json.request_id }}-open\"}"
+      },
+      "id": "macro-open-wa",
+      "name": "Macro abrir WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 0]
+    },
+    {
+      "parameters": { "amount": 3, "unit": "seconds" },
+      "id": "wait-macro-open",
+      "name": "Aguardar abrir WA",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1980, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse número Hero').item.json.backend_base }}/api/v1/admin/whatsapp/register",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Parse número Hero').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $('Parse número Hero').item.json.device_id }}\",\n  \"request_id\": \"{{ $('Parse número Hero').item.json.request_id }}\",\n  \"phone_e164\": \"{{ $('Parse número Hero').item.json.phone_e164 }}\",\n  \"session_label\": \"{{ $('Parse número Hero').item.json.session_label }}\",\n  \"display_name\": \"{{ $('Parse número Hero').item.json.display_name }}\"\n}"
+      },
+      "id": "register-wa",
+      "name": "FCM register_whatsapp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": { "amount": 25, "unit": "seconds" },
+      "id": "wait-sms",
+      "name": "Aguardar SMS",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=getStatus&api_key={{ $('Parse número Hero').item.json.hero_api_key }}&id={{ $('Parse número Hero').item.json.activation_id }}",
+        "options": {}
+      },
+      "id": "hero-poll",
+      "name": "Hero getStatus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.data ?? $input.first().json.body ?? '';\nconst text = typeof raw === 'string' ? raw : JSON.stringify(raw);\nconst m = text.match(/(\\d{6})/);\nconst code = m ? m[1] : '';\nconst prev = $('Parse número Hero').first().json;\nif (!code) throw new Error('Código SMS ainda não chegou: ' + text);\nreturn [{ json: { ...prev, sms_code: code } }];"
+      },
+      "id": "parse-code",
+      "name": "Extrair código SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/register-code",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $json.device_id }}\",\n  \"request_id\": \"{{ $json.request_id }}\",\n  \"code\": \"{{ $json.sms_code }}\"\n}"
+      },
+      "id": "send-code",
+      "name": "FCM código SMS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2200, 0]
+    },
+    {
+      "parameters": { "amount": 45, "unit": "seconds" },
+      "id": "wait-register",
+      "name": "Aguardar cadastro",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2420, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Extrair código SMS').item.json.backend_base }}/api/v1/evolution/instances/{{ $('Extrair código SMS').item.json.evolution_instance }}/pair",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Extrair código SMS').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $('Extrair código SMS').item.json.device_id }}\",\n  \"phone_e164\": \"{{ $('Extrair código SMS').item.json.phone_e164 }}\",\n  \"request_id\": \"{{ $('Extrair código SMS').item.json.request_id }}-pair\",\n  \"create_if_missing\": true\n}"
+      },
+      "id": "evo-pair",
+      "name": "Evolution pair + FCM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2640, 0],
+      "notes": "pairing_code na resposta; APK digita via submit_pairing_code"
+    },
+    {
+      "parameters": { "amount": 90, "unit": "seconds" },
+      "id": "wait-evo",
+      "name": "Aguardar Evolution open",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2860, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Extrair código SMS').item.json.backend_base }}/api/v1/evolution/instances/{{ $('Extrair código SMS').item.json.evolution_instance }}/state",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Extrair código SMS').item.json.backend_token }}" }
+          ]
+        }
+      },
+      "id": "evo-state",
+      "name": "Estado Evolution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3080, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Extrair código SMS').item.json.backend_base }}/api/v1/admin/whatsapp/export",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Extrair código SMS').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $('Extrair código SMS').item.json.device_id }}\",\n  \"session_label\": \"{{ $('Extrair código SMS').item.json.session_label }}\",\n  \"request_id\": \"{{ $('Extrair código SMS').item.json.request_id }}-export\"\n}"
+      },
+      "id": "export-wa",
+      "name": "Export sessão (opcional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3300, 0]
+    },
+    {
+      "parameters": { "amount": 20, "unit": "seconds" },
+      "id": "wait-export",
+      "name": "Aguardar export",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3520, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Extrair código SMS').item.json.backend_base }}/api/v1/admin/whatsapp/clear",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Extrair código SMS').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $('Extrair código SMS').item.json.device_id }}\",\"request_id\":\"{{ $('Extrair código SMS').item.json.request_id }}-clear2\"}"
+      },
+      "id": "clear-wa-2",
+      "name": "Limpar WA (fim)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3740, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Variáveis').item.json.gerente_webhook_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"instance\": \"{{ $('Extrair código SMS').item.json.evolution_instance }}\",\n  \"phone\": \"{{ $('Extrair código SMS').item.json.phone_e164 }}\",\n  \"session_label\": \"{{ $('Extrair código SMS').item.json.session_label }}\",\n  \"display_name\": \"{{ $('Extrair código SMS').item.json.display_name }}\",\n  \"evo_state\": \"{{ $json.state }}\"\n}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "gerente-hook",
+      "name": "Gerente turnos (webhook)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3960, 0],
+      "notes": "Substitua gerente_webhook_url; falha não bloqueia montagem se desativar nó",
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Manual / Webhook": { "main": [[{ "node": "Variáveis", "type": "main", "index": 0 }]] },
+    "Variáveis": { "main": [[{ "node": "Hero SMS getNumber", "type": "main", "index": 0 }]] },
+    "Hero SMS getNumber": { "main": [[{ "node": "Parse número Hero", "type": "main", "index": 0 }]] },
+    "Parse número Hero": {
+      "main": [[
+        { "node": "API mount/start", "type": "main", "index": 0 },
+        { "node": "Limpar WA (início)", "type": "main", "index": 0 }
+      ]]
+    },
+    "Limpar WA (início)": { "main": [[{ "node": "Aguardar limpar", "type": "main", "index": 0 }]] },
+    "Aguardar limpar": { "main": [[{ "node": "Macro HOME", "type": "main", "index": 0 }]] },
+    "Macro HOME": { "main": [[{ "node": "Aguardar (menu)", "type": "main", "index": 0 }]] },
+    "Aguardar (menu)": { "main": [[{ "node": "Macro abrir WA", "type": "main", "index": 0 }]] },
+    "Macro abrir WA": { "main": [[{ "node": "Aguardar abrir WA", "type": "main", "index": 0 }]] },
+    "Aguardar abrir WA": { "main": [[{ "node": "FCM register_whatsapp", "type": "main", "index": 0 }]] },
+    "FCM register_whatsapp": { "main": [[{ "node": "Aguardar SMS", "type": "main", "index": 0 }]] },
+    "Aguardar SMS": { "main": [[{ "node": "Hero getStatus", "type": "main", "index": 0 }]] },
+    "Hero getStatus": { "main": [[{ "node": "Extrair código SMS", "type": "main", "index": 0 }]] },
+    "Extrair código SMS": { "main": [[{ "node": "FCM código SMS", "type": "main", "index": 0 }]] },
+    "FCM código SMS": { "main": [[{ "node": "Aguardar cadastro", "type": "main", "index": 0 }]] },
+    "Aguardar cadastro": { "main": [[{ "node": "Evolution pair + FCM", "type": "main", "index": 0 }]] },
+    "Evolution pair + FCM": { "main": [[{ "node": "Aguardar Evolution open", "type": "main", "index": 0 }]] },
+    "Aguardar Evolution open": { "main": [[{ "node": "Estado Evolution", "type": "main", "index": 0 }]] },
+    "Estado Evolution": { "main": [[{ "node": "Export sessão (opcional)", "type": "main", "index": 0 }]] },
+    "Export sessão (opcional)": { "main": [[{ "node": "Aguardar export", "type": "main", "index": 0 }]] },
+    "Aguardar export": { "main": [[{ "node": "Limpar WA (fim)", "type": "main", "index": 0 }]] },
+    "Limpar WA (fim)": { "main": [[{ "node": "Gerente turnos (webhook)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

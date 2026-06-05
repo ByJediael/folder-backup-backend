@@ -1,0 +1,65 @@
+{
+  "name": "Folder Backup - WhatsApp Business (FCM auto)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "device_id", "name": "device_id", "value": "mi9-se", "type": "string" },
+            { "id": "type", "name": "type", "value": "BACKUP", "type": "string" },
+            {
+              "id": "absolute_path",
+              "name": "absolute_path",
+              "value": "/data/data/com.whatsapp.w4b",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-fields",
+      "name": "Definir job WA Business",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0],
+      "notes": "Dados internos WA Business — requer root/Magisk no celular. Mídia: /sdcard/Android/media/com.whatsapp.w4b"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.jediael.uk/webhook/api/v1/admin/jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 12345678"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $json.device_id }}\",\n  \"type\": \"{{ $json.type }}\",\n  \"absolute_path\": \"{{ $json.absolute_path }}\"\n}",
+        "options": {}
+      },
+      "id": "http-create",
+      "name": "HTTP criar job + FCM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "notes": "Backend envia push FCM após criar o job. Local: http://IP:8080/api/v1/admin/jobs"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Definir job WA Business", "type": "main", "index": 0 }]] },
+    "Definir job WA Business": { "main": [[{ "node": "HTTP criar job + FCM", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

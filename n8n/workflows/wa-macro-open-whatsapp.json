@@ -1,0 +1,95 @@
+{
+  "name": "WhatsApp — macro abrir (home + launcher)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "device_id", "name": "device_id", "value": "factory-phone", "type": "string" },
+            { "id": "backend_base", "name": "backend_base", "value": "http://192.168.1.9:8080", "type": "string" },
+            { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" }
+          ]
+        }
+      },
+      "id": "set-vars",
+      "name": "Variáveis",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/macro/home",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $json.device_id }}\",\"request_id\":\"macro-{{ $now.toMillis() }}\"}"
+      },
+      "id": "macro-home",
+      "name": "Macro HOME",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": { "amount": 2, "unit": "seconds" },
+      "id": "wait-home",
+      "name": "Aguardar (pessoa)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Variáveis').item.json.backend_base }}/api/v1/admin/whatsapp/macro/open-whatsapp",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Variáveis').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $('Variáveis').item.json.device_id }}\",\"request_id\":\"macro-open-{{ $now.toMillis() }}\"}"
+      },
+      "id": "macro-open",
+      "name": "Macro abrir WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": { "amount": 5, "unit": "seconds" },
+      "id": "wait-open",
+      "name": "Aguardar abrir",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1100, 0]
+    }
+  ],
+  "connections": {
+    "Manual": { "main": [[{ "node": "Variáveis", "type": "main", "index": 0 }]] },
+    "Variáveis": { "main": [[{ "node": "Macro HOME", "type": "main", "index": 0 }]] },
+    "Macro HOME": { "main": [[{ "node": "Aguardar (pessoa)", "type": "main", "index": 0 }]] },
+    "Aguardar (pessoa)": { "main": [[{ "node": "Macro abrir WA", "type": "main", "index": 0 }]] },
+    "Macro abrir WA": { "main": [[{ "node": "Aguardar abrir", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

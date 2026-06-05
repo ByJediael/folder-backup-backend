@@ -1,0 +1,13 @@
+services:
+  backup-backend:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - backup-data:/app/data
+
+volumes:
+  backup-data:

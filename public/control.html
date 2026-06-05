@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Central WhatsApp — 6 dispositivos</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface2: #262626;
+      --primary: #81c784;
+      --warn: #ffb74d;
+      --error: #cf6679;
+      --text: #ececec;
+      --muted: #9e9e9e;
+      --open: #66bb6a;
+      --close: #ef5350;
+      --qr: #42a5f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--surface2);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      justify-content: space-between;
+    }
+    header h1 { margin: 0; font-size: 1.2rem; color: var(--primary); }
+    .meta { font-size: 0.8rem; color: var(--muted); }
+    main {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 16px;
+      padding: 16px 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    @media (max-width: 960px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .slot {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 14px;
+      border: 1px solid var(--surface2);
+    }
+    .slot h2 { margin: 0 0 4px; font-size: 1rem; }
+    .slot .sub { font-size: 0.75rem; color: var(--muted); margin-bottom: 10px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .badge {
+      font-size: 0.7rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--surface2);
+    }
+    .badge.open { background: #1b3d1f; color: var(--open); }
+    .badge.close { background: #3d1b1b; color: var(--close); }
+    .badge.qr { background: #1b2d3d; color: var(--qr); }
+    .badge.offline { color: var(--muted); }
+    .badge.fcm-no { color: var(--warn); }
+    input, select {
+      width: 100%;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      border: 1px solid var(--surface2);
+      border-radius: 6px;
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    button {
+      padding: 8px 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--surface2);
+      color: var(--text);
+    }
+    button.primary { background: #2e7d32; color: #fff; }
+    button.warn { background: #e65100; color: #fff; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .panel {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 14px;
+      border: 1px solid var(--surface2);
+      max-height: calc(100vh - 100px);
+      overflow: auto;
+    }
+    .panel h3 { margin: 0 0 10px; font-size: 0.95rem; }
+    .event {
+      font-size: 0.75rem;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--surface2);
+    }
+    .event time { color: var(--muted); display: block; }
+    #auth-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.85);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    #auth-overlay.hidden { display: none; }
+    .auth-card {
+      background: var(--surface);
+      padding: 24px;
+      border-radius: 12px;
+      width: min(400px, 90vw);
+    }
+    #qr-modal {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.9);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      flex-direction: column;
+      padding: 20px;
+    }
+    #qr-modal.show { display: flex; }
+    #qr-modal img {
+      max-width: min(320px, 90vw);
+      background: #fff;
+      padding: 12px;
+      border-radius: 8px;
+    }
+    .msg { font-size: 0.8rem; color: var(--muted); margin-top: 8px; min-height: 2em; }
+  </style>
+</head>
+<body>
+  <div id="auth-overlay">
+    <div class="auth-card">
+      <h2>Token da API</h2>
+      <p class="meta">Mesmo Bearer do backend e dos APKs</p>
+      <input id="token-input" type="password" placeholder="BACKUP_API_TOKEN" />
+      <button class="primary" style="width:100%;margin-top:8px" onclick="saveToken()">Entrar</button>
+    </div>
+  </div>
+
+  <header>
+    <div>
+      <h1>Central WhatsApp</h1>
+      <div class="meta" id="header-meta">—</div>
+    </div>
+    <a href="/mount" style="color:var(--primary);font-size:0.85rem;text-decoration:none">Montagem</a>
+    <button onclick="refresh()">Atualizar</button>
+    <button onclick="logout()">Sair</button>
+  </header>
+
+  <main>
+    <div>
+      <div class="grid" id="slots-grid"></div>
+    </div>
+    <div class="panel">
+      <h3>Eventos recentes</h3>
+      <div id="events-list"></div>
+    </div>
+  </main>
+
+  <div id="qr-modal">
+    <h2 id="qr-title">QR Evolution</h2>
+    <img id="qr-img" alt="QR Code" />
+    <p class="meta" id="qr-hint">Escaneie com o WhatsApp do celular deste slot</p>
+    <div class="actions">
+      <button onclick="refreshQr()">Atualizar QR</button>
+      <button onclick="closeQr()">Fechar</button>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = (() => {
+      const origin = window.location.origin;
+      const path = window.location.pathname || "";
+      if (path.includes("/webhook")) return origin + "/webhook/api/v1";
+      return origin + "/api/v1";
+    })();
+    let pollTimer = null;
+    let qrInstance = null;
+
+    function token() {
+      return sessionStorage.getItem("backup_token") || "";
+    }
+
+    function saveToken() {
+      const t = document.getElementById("token-input").value.trim();
+      if (!t) return alert("Informe o token");
+      sessionStorage.setItem("backup_token", t);
+      document.getElementById("auth-overlay").classList.add("hidden");
+      startPolling();
+    }
+
+    function logout() {
+      sessionStorage.removeItem("backup_token");
+      stopPolling();
+      document.getElementById("auth-overlay").classList.remove("hidden");
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(API_BASE + path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token(),
+          ...(options.headers || {}),
+        },
+      });
+      const text = await res.text();
+      let data;
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+      if (res.status === 401) {
+        logout();
+        throw new Error("Não autorizado");
+      }
+      if (!res.ok) throw new Error(data.error || data.message || "HTTP " + res.status);
+      return data;
+    }
+
+    function evoBadge(status) {
+      const s = (status || "unknown").toLowerCase();
+      if (s === "open") return '<span class="badge open">Evolution: conectado</span>';
+      if (s === "close") return '<span class="badge close">Evolution: desconectado</span>';
+      if (s === "qr") return '<span class="badge qr">Evolution: aguardando QR</span>';
+      return '<span class="badge offline">Evolution: ' + s + '</span>';
+    }
+
+    function phoneBadge(slot) {
+      const st = (slot.phone_status || "idle").toLowerCase();
+      const fcm = slot.fcm_registered
+        ? '<span class="badge">FCM ok</span>'
+        : '<span class="badge fcm-no">Sem FCM</span>';
+      return '<span class="badge">' + st + '</span>' + fcm;
+    }
+
+    function renderSlots(slots) {
+      const grid = document.getElementById("slots-grid");
+      grid.innerHTML = slots.map((s) => `
+        <div class="slot" data-slot-id="${s.slot_id}">
+          <h2>${esc(s.label)}</h2>
+          <div class="sub">${esc(s.device_id)} · ${esc(s.evolution_instance || "—")}</div>
+          <div class="badges">${phoneBadge(s)} ${evoBadge(s.evo_status)}</div>
+          <div class="msg">${esc(s.last_message || "—")}</div>
+          <input class="session-label" data-device="${s.device_id}" value="${esc(s.session_label || "")}" placeholder="session_label" />
+          <input class="phone-e164" data-device="${s.device_id}" value="${esc(s.phone_e164 || "")}" placeholder="+55..." />
+          <div class="actions">
+            <button class="warn" onclick="clearWa('${s.device_id}')">Limpar</button>
+            <button class="primary" onclick="switchWa('${s.device_id}')">Restaurar</button>
+            <button onclick="registerWa('${s.device_id}')">Cadastrar</button>
+            <button onclick="showQr('${s.evolution_instance}')">QR</button>
+          </div>
+          <input class="sms-code" data-device="${s.device_id}" placeholder="código SMS (6 dígitos)" maxlength="8" />
+          <button style="width:100%;margin-top:4px" onclick="sendCode('${s.device_id}')">Enviar código</button>
+        </div>
+      `).join("");
+    }
+
+    function renderEvents(events) {
+      const el = document.getElementById("events-list");
+      if (!events.length) {
+        el.innerHTML = '<p class="meta">Nenhum evento</p>';
+        return;
+      }
+      el.innerHTML = events.map((e) => `
+        <div class="event">
+          <time>${esc(e.at || "")}</time>
+          <strong>${esc(e.event)}</strong>
+          ${e.device_id ? " · " + esc(e.device_id) : ""}
+          <div>${esc(e.message || "")}</div>
+        </div>
+      `).join("");
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    }
+
+    function getInput(deviceId, cls) {
+      const el = document.querySelector(`.${cls}[data-device="${deviceId}"]`);
+      return el ? el.value.trim() : "";
+    }
+
+    async function refresh() {
+      try {
+        const data = await api("/dashboard");
+        renderSlots(data.slots || []);
+        renderEvents(data.events || []);
+        const fcm = data.fcm?.registered_devices?.length || 0;
+        const evo = data.evolution?.enabled ? "Evolution ativo" : "Evolution desativado";
+        document.getElementById("header-meta").textContent =
+          `${data.slots?.length || 0} slots · ${fcm} FCM · ${evo}`;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function clearWa(deviceId) {
+      try {
+        await api("/admin/whatsapp/clear", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function switchWa(deviceId) {
+      const session_label = getInput(deviceId, "session-label");
+      if (!session_label) return alert("Informe session_label");
+      try {
+        await api("/admin/whatsapp/switch", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId, session_label, open_whatsapp: true }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    let lastRegisterRequest = {};
+
+    async function registerWa(deviceId) {
+      const phone_e164 = getInput(deviceId, "phone-e164");
+      const session_label = getInput(deviceId, "session-label");
+      if (!phone_e164 || !session_label) return alert("Número e session_label obrigatórios");
+      const request_id = "reg-" + Math.random().toString(36).slice(2, 10);
+      lastRegisterRequest[deviceId] = request_id;
+      try {
+        await api("/admin/whatsapp/register", {
+          method: "POST",
+          body: JSON.stringify({
+            device_id: deviceId,
+            request_id,
+            phone_e164,
+            session_label,
+            display_name: "Conta Backup",
+          }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function sendCode(deviceId) {
+      const code = getInput(deviceId, "sms-code");
+      const request_id = lastRegisterRequest[deviceId];
+      if (!code) return alert("Informe o código");
+      if (!request_id) return alert("Rode Cadastrar antes");
+      try {
+        await api("/admin/whatsapp/register-code", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId, request_id, code }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function showQr(instance) {
+      if (!instance) return alert("Sem evolution_instance no slot");
+      qrInstance = instance;
+      document.getElementById("qr-modal").classList.add("show");
+      document.getElementById("qr-title").textContent = "QR — " + instance;
+      await refreshQr();
+    }
+
+    function closeQr() {
+      document.getElementById("qr-modal").classList.remove("show");
+      qrInstance = null;
+    }
+
+    async function refreshQr() {
+      if (!qrInstance) return;
+      try {
+        const data = await api("/evolution/instances/" + encodeURIComponent(qrInstance) + "/qr");
+        const b64 = data.qr_base64;
+        if (b64) {
+          const src = b64.startsWith("data:") ? b64 : "data:image/png;base64," + b64;
+          document.getElementById("qr-img").src = src;
+          document.getElementById("qr-hint").textContent =
+            "Estado: " + (data.connection_state || "?") + " — atualize se expirar";
+        } else {
+          document.getElementById("qr-hint").textContent =
+            "Sem QR (pode já estar conectado). Estado: " + (data.connection_state || "?");
+          document.getElementById("qr-img").removeAttribute("src");
+        }
+      } catch (e) {
+        document.getElementById("qr-hint").textContent = e.message;
+      }
+    }
+
+    function startPolling() {
+      refresh();
+      stopPolling();
+      pollTimer = setInterval(refresh, 2500);
+      if (qrInstance) setInterval(refreshQr, 15000);
+    }
+
+    function stopPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+    if (token()) {
+      document.getElementById("auth-overlay").classList.add("hidden");
+      startPolling();
+    }
+  </script>
+</body>
+</html>

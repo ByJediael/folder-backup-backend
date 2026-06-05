@@ -1,0 +1,166 @@
+{
+  "name": "Evolution desconectou → slot correto (6 devices)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "backup-events",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook backup-events",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "backup-events"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "evo",
+              "leftValue": "={{ $json.body.event }}",
+              "rightValue": "evo_disconnected",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-evo",
+      "name": "É evo_disconnected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "device",
+              "name": "device_id",
+              "value": "={{ $json.body.device_id }}",
+              "type": "string"
+            },
+            {
+              "id": "session",
+              "name": "session_label",
+              "value": "={{ $json.body.session_label || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "instance",
+              "name": "evolution_instance",
+              "value": "={{ $json.body.evolution_instance }}",
+              "type": "string"
+            },
+            {
+              "id": "slot",
+              "name": "slot_id",
+              "value": "={{ $json.body.slot_id }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "extract",
+      "name": "Dados do slot",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, -80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.jediael.uk/webhook/api/v1/admin/whatsapp/clear",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $json.device_id }}\"}"
+      },
+      "id": "clear",
+      "name": "Limpar WA (FCM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, -160],
+      "notes": "Só o celular com este device_id recebe o push"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-session",
+              "leftValue": "={{ $json.session_label }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-session",
+      "name": "Tem session_label?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 40]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.jediael.uk/webhook/api/v1/admin/whatsapp/switch",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $('Dados do slot').item.json.device_id }}\",\"session_label\":\"{{ $('Dados do slot').item.json.session_label }}\",\"open_whatsapp\":true}"
+      },
+      "id": "switch",
+      "name": "Restaurar sessão (FCM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 20],
+      "notes": "Configure session_label em data/slots.json por slot"
+    },
+    {
+      "parameters": {},
+      "id": "noop",
+      "name": "Ignorar outros eventos",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [480, 120]
+    }
+  ],
+  "connections": {
+    "Webhook backup-events": {
+      "main": [[{ "node": "É evo_disconnected?", "type": "main", "index": 0 }]]
+    },
+    "É evo_disconnected?": {
+      "main": [
+        [{ "node": "Dados do slot", "type": "main", "index": 0 }],
+        [{ "node": "Ignorar outros eventos", "type": "main", "index": 0 }]
+      ]
+    },
+    "Dados do slot": {
+      "main": [
+        [
+          { "node": "Limpar WA (FCM)", "type": "main", "index": 0 },
+          { "node": "Tem session_label?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Tem session_label?": {
+      "main": [[{ "node": "Restaurar sessão (FCM)", "type": "main", "index": 0 }], []]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Evolution connection.update close → backend evo_disconnected → clear + switch no device_id do slot (phone-01…phone-06, mi9-se)."
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "name": "Folder Backup - Criar job (backend LAN)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "device_id", "name": "device_id", "value": "mi9-se", "type": "string" },
+            { "id": "type", "name": "type", "value": "BACKUP", "type": "string" },
+            { "id": "absolute_path", "name": "absolute_path", "value": "/sdcard/Download", "type": "string" }
+          ]
+        }
+      },
+      "id": "set-fields",
+      "name": "Definir job",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.9:8080/api/v1/admin/jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 12345678"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $json.device_id }}\",\n  \"type\": \"{{ $json.type }}\",\n  \"absolute_path\": \"{{ $json.absolute_path }}\"\n}"
+      },
+      "id": "http-create",
+      "name": "HTTP criar job LAN",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "notes": "Só funciona se o n8n rodar na MESMA rede e alcançar o Mint. n8n na VPS: use create-backup-job.json com URL pública /webhook/api/"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Definir job", "type": "main", "index": 0 }]] },
+    "Definir job": { "main": [[{ "node": "HTTP criar job LAN", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

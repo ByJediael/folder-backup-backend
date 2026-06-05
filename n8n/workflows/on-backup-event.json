@@ -1,0 +1,44 @@
+{
+  "name": "Folder Backup - Eventos do backend",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "backup-events",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-events",
+      "name": "Webhook backup-events",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "backup-events"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "log",
+              "name": "log",
+              "value": "={{ $json.body.event }} — job {{ $json.body.job?.id || $json.body.job_id || 'n/a' }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-log",
+      "name": "Processar evento",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Webhook backup-events": {
+      "main": [[{ "node": "Processar evento", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

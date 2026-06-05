@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Folder Backup — Troca WhatsApp</title>
+  <style>
+    :root {
+      --bg: #121212;
+      --surface: #1e1e1e;
+      --surface2: #2c2c2c;
+      --primary: #81c784;
+      --text: #e8e8e8;
+      --muted: #bdbdbd;
+      --error: #cf6679;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 28px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 4px; color: var(--primary); }
+    .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+    label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      border: 1px solid var(--surface2);
+      border-radius: 8px;
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .row { display: flex; gap: 10px; margin-top: 16px; }
+    button {
+      flex: 1;
+      padding: 16px 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .1s, opacity .2s;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button:not(:disabled):active { transform: scale(0.98); }
+    .tim { background: #1565c0; color: #fff; }
+    .claro { background: #e65100; color: #fff; }
+    #status {
+      margin-top: 20px;
+      padding: 12px;
+      border-radius: 8px;
+      background: var(--surface2);
+      font-size: 0.9rem;
+      min-height: 48px;
+      white-space: pre-wrap;
+    }
+    #status.ok { border-left: 4px solid var(--primary); }
+    #status.err { border-left: 4px solid var(--error); }
+    .hint { font-size: 0.75rem; color: var(--muted); margin-top: 16px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Troca WhatsApp Business</h1>
+    <p class="sub">Painel local — o celular executa em segundo plano (FCM). Grave só esta tela + WhatsApp.</p>
+
+    <label>URL do backend</label>
+    <input id="baseUrl" type="url" value="" />
+
+    <label>Token Bearer</label>
+    <input id="token" type="password" placeholder="12345678" />
+
+    <label>Device ID</label>
+    <input id="deviceId" type="text" value="mi9-se" />
+
+    <div class="row">
+      <button class="tim" id="btnTim" type="button">TIM v2</button>
+      <button class="claro" id="btnClaro" type="button">Claro v2</button>
+    </div>
+
+    <div id="status">Configure token e clique em um número.</div>
+
+    <p class="hint">
+      Celular: mesmo Wi‑Fi, app com API salva + FCM, root ativo, Magisk sem toast (opcional).
+      Backups: numero-timv2 e numero-clarov2 no Download.
+    </p>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const base = () => ($("baseUrl").value || window.location.origin).replace(/\/$/, "");
+    const auth = () => $("token").value.trim();
+    const device = () => $("deviceId").value.trim() || "mi9-se";
+
+    $("baseUrl").value = window.location.origin;
+
+    const savedToken = localStorage.getItem("fba_token");
+    if (savedToken) $("token").value = savedToken;
+
+    function setStatus(text, ok) {
+      const el = $("status");
+      el.textContent = text;
+      el.className = ok === true ? "ok" : ok === false ? "err" : "";
+    }
+
+    async function api(path, opts = {}) {
+      const headers = { Authorization: "Bearer " + auth(), ...opts.headers };
+      if (opts.body) headers["Content-Type"] = "application/json";
+      const res = await fetch(base() + path, { ...opts, headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.message || "HTTP " + res.status);
+      return data;
+    }
+
+    async function switchTo(label, btn) {
+      if (!auth()) { setStatus("Informe o token.", false); return; }
+      localStorage.setItem("fba_token", auth());
+      btn.disabled = true;
+      $("btnTim").disabled = true;
+      $("btnClaro").disabled = true;
+      setStatus("Enviando push para o celular…");
+      try {
+        const r = await api("/api/v1/admin/whatsapp/switch", {
+          method: "POST",
+          body: JSON.stringify({
+            device_id: device(),
+            session_label: label,
+            open_whatsapp: true,
+            session_folder: label === "numero-timv2"
+              ? "session_2026-05-22_22-08-54_numero-timv2"
+              : label === "numero-clarov2"
+                ? "session_2026-05-22_22-20-41_numero-clarov2"
+                : undefined,
+          }),
+        });
+        if (!r.fcm_ok) {
+          setStatus("Push não enviado: " + (r.fcm_error || r.fcm_reason || "sem FCM"), false);
+          return;
+        }
+        setStatus("Push OK — trocando no celular (~5 s)…", null);
+        pollStatus(r.request_id);
+      } catch (e) {
+        setStatus("Erro: " + e.message, false);
+      } finally {
+        $("btnTim").disabled = false;
+        $("btnClaro").disabled = false;
+      }
+    }
+
+    async function pollStatus(requestId, tries = 0) {
+      if (tries > 30) {
+        setStatus("Demorou — veja se o WA abriu no celular.", false);
+        return;
+      }
+      if (tries > 0) await new Promise((r) => setTimeout(r, 400));
+      try {
+        const s = await api("/api/v1/admin/whatsapp/status?device_id=" + encodeURIComponent(device()));
+        if (s.request_id === requestId && s.status === "completed") {
+          setStatus("✓ " + (s.message || "Concluído"), true);
+          return;
+        }
+        if (s.request_id === requestId && s.status === "failed") {
+          setStatus("Falhou: " + (s.message || "?"), false);
+          return;
+        }
+        if (s.request_id === requestId && (s.status === "running" || s.status === "dispatched")) {
+          setStatus(s.status === "running" ? (s.message || "Executando…") : "Push OK — celular executando…", null);
+          pollStatus(requestId, tries + 1);
+          return;
+        }
+        pollStatus(requestId, tries + 1);
+      } catch (e) {
+        setStatus("Erro ao consultar status: " + e.message, false);
+      }
+    }
+
+    $("btnTim").onclick = () => switchTo("numero-timv2", $("btnTim"));
+    $("btnClaro").onclick = () => switchTo("numero-clarov2", $("btnClaro"));
+  </script>
+</body>
+</html>
