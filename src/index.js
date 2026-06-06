@@ -10,6 +10,7 @@ const slots = require("./slots");
 const evolution = require("./evolution");
 const {
   saveFcmToken,
+  deleteFcmToken,
   sendSyncPush,
   sendSwitchSessionPush,
   sendClearSessionPush,
@@ -23,11 +24,12 @@ const {
   fcmStatus,
   listRegisteredDevices,
 } = require("./fcm");
-const { getStatus, setDispatched, updateFromDevice } = require("./whatsapp-switch");
+const { getStatus, setDispatched, updateFromDevice, clearStatus } = require("./whatsapp-switch");
 const {
   getRegisterStatus,
   setRegisterDispatched,
   updateRegisterFromDevice,
+  clearRegisterStatus,
 } = require("./whatsapp-register");
 
 const EVOLUTION_WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET || "";
@@ -224,6 +226,42 @@ app.get("/api/v1/admin/devices", auth, (_req, res) => {
     };
   });
   res.json({ devices, total: devices.length });
+});
+
+/** Remove registro FCM do celular (some da Operação; slot permanece). */
+app.delete("/api/v1/admin/devices/:deviceId", auth, (req, res) => {
+  const deviceId = String(req.params.deviceId || "").trim();
+  if (!deviceId) {
+    return res.status(400).json({ error: "device_id obrigatório" });
+  }
+  if (!deleteFcmToken(deviceId)) {
+    return res.status(404).json({ error: "Celular não registrado (sem FCM)", device_id: deviceId });
+  }
+
+  clearStatus(deviceId);
+  clearRegisterStatus(deviceId);
+  deviceSessions.clearDeviceSessions(deviceId);
+
+  const slot = slots.findByDeviceId(deviceId);
+  if (slot) {
+    slots.upsertSlot({
+      ...slot,
+      phone_status: "idle",
+      last_message: "FCM removido — configure o APK e Salvar de novo",
+    });
+  }
+
+  logEvent("fcm_unregistered", {
+    device_id: deviceId,
+    slot_id: slot?.slot_id || null,
+    message: "Registro FCM removido pela central",
+  });
+
+  res.json({
+    ok: true,
+    device_id: deviceId,
+    message: "Celular removido. No aparelho, abra o APK e toque Salvar para registrar de novo.",
+  });
 });
 
 app.get("/api/v1/admin/whatsapp/sessions", auth, (_req, res) => {

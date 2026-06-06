@@ -96,6 +96,7 @@
     }
     button.primary { background: #2e7d32; color: #fff; }
     button.warn { background: #e65100; color: #fff; }
+    button.danger { background: #b71c1c; color: #fff; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     .panel {
       background: var(--surface);
@@ -345,6 +346,7 @@
               <th>FCM</th>
               <th>Sessões no celular</th>
               <th>Último sync</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -355,6 +357,9 @@
                 <td><span class="badge">conectado</span></td>
                 <td>${d.sessions_count ?? 0}</td>
                 <td>${esc(fmtTime(d.sessions_updated_at || d.fcm_updated_at))}</td>
+                <td class="actions">
+                  <button class="danger" onclick="removeDevice('${esc(d.device_id)}')">Remover</button>
+                </td>
               </tr>
             `).join("")}
           </tbody>
@@ -488,6 +493,7 @@
             <input class="sms-code" data-device="${esc(s.device_id)}" placeholder="código SMS" maxlength="8" />
             <button style="width:100%;margin-top:4px" onclick="sendCode('${esc(s.device_id)}')">Enviar código SMS</button>
           </details>
+          <button class="danger" style="width:100%;margin-top:10px" onclick="removeDevice('${esc(s.device_id)}')">Remover celular</button>
         </div>
       `).join("");
     }
@@ -649,6 +655,22 @@
           method: "POST",
           body: JSON.stringify({ device_id: deviceId, request_id, code }),
         });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function removeDevice(deviceId) {
+      const ok = confirm(
+        "Remover " + deviceId + "?\n\n" +
+        "O celular some da Operação e não recebe mais comandos FCM.\n" +
+        "Para registrar de novo: abra o APK no aparelho e toque Salvar."
+      );
+      if (!ok) return;
+      try {
+        const data = await api("/admin/devices/" + encodeURIComponent(deviceId), {
+          method: "DELETE",
+        });
+        alert(data.message || "Celular removido.");
         await refresh();
       } catch (e) { alert(e.message); }
     }

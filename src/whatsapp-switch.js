@@ -47,6 +47,14 @@ function setDispatched(deviceId, requestId, sessionLabel) {
   return map[deviceId];
 }
 
+function clearStatus(deviceId) {
+  const map = readAll();
+  if (!map[deviceId]) return false;
+  delete map[deviceId];
+  writeAll(map);
+  return true;
+}
+
 function updateFromDevice(deviceId, body) {
   const map = readAll();
   const prev = map[deviceId] || {};
@@ -67,4 +75,5 @@ module.exports = {
   getStatus,
   setDispatched,
   updateFromDevice,
+  clearStatus,
 };

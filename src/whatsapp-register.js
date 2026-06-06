@@ -51,6 +51,14 @@ function setRegisterDispatched(deviceId, requestId, fields) {
   return map[deviceId];
 }
 
+function clearRegisterStatus(deviceId) {
+  const map = readAll();
+  if (!map[deviceId]) return false;
+  delete map[deviceId];
+  writeAll(map);
+  return true;
+}
+
 function updateRegisterFromDevice(deviceId, body) {
   const map = readAll();
   const prev = map[deviceId] || {};
@@ -73,4 +81,5 @@ module.exports = {
   getRegisterStatus,
   setRegisterDispatched,
   updateRegisterFromDevice,
+  clearRegisterStatus,
 };

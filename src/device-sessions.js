@@ -35,6 +35,14 @@ function listForDevice(deviceId) {
   return readAll()[deviceId]?.sessions || [];
 }
 
+function clearDeviceSessions(deviceId) {
+  const all = readAll();
+  if (!all[deviceId]) return false;
+  delete all[deviceId];
+  writeAll(all);
+  return true;
+}
+
 function listAllFlat() {
   const all = readAll();
   const rows = [];
@@ -55,4 +63,5 @@ module.exports = {
   listForDevice,
   listAllFlat,
   readAll,
+  clearDeviceSessions,
 };

@@ -69,6 +69,14 @@ function getFcmToken(deviceId) {
   return entry?.token || null;
 }
 
+function deleteFcmToken(deviceId) {
+  const map = readTokens();
+  if (!map[deviceId]) return false;
+  delete map[deviceId];
+  writeTokens(map);
+  return true;
+}
+
 async function sendDataPush(deviceId, data) {
   if (!isEnabled()) {
     return { ok: false, skipped: true, reason: "fcm_disabled" };
@@ -199,6 +207,7 @@ module.exports = {
   isEnabled,
   saveFcmToken,
   getFcmToken,
+  deleteFcmToken,
   sendSyncPush,
   sendSwitchSessionPush,
   sendClearSessionPush,
