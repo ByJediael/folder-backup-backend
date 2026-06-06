@@ -121,8 +121,10 @@ app.get("/api/v1/dashboard", auth, async (_req, res) => {
     const evo = await evolution.fetchInstances();
     if (evo.ok) evoInstances = evo.instances;
   }
+  const connected_devices = slots.listConnectedDevices();
   res.json({
     slots: enriched,
+    connected_devices,
     events: readEvents({ limit: 30 }),
     fcm: fcmStatus(),
     evolution: { ...evolution.statusInfo(), instances: evoInstances },

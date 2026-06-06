@@ -3,7 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { getStatus } = require("./whatsapp-switch");
 const { getRegisterStatus } = require("./whatsapp-register");
-const { getFcmToken } = require("./fcm");
+const { getFcmToken, listRegisteredDevices } = require("./fcm");
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, "..", "data"));
 const SLOTS_FILE = path.join(DATA_DIR, "slots.json");
@@ -130,9 +130,34 @@ function listSlotsEnriched() {
   return listSlots().map(enrichSlot);
 }
 
+/** Celulares com APK online (FCM registrado) — usado na aba Operação. */
+function listConnectedDevices() {
+  return listRegisteredDevices().map(({ device_id, fcm_updated_at }) => {
+    const slot = findByDeviceId(device_id);
+    const base = slot || {
+      slot_id: null,
+      label: device_id,
+      device_id,
+      evolution_instance: "",
+      session_label: "",
+      phone_e164: null,
+      phone_status: "idle",
+      evo_status: "unknown",
+      last_message: null,
+    };
+    const enriched = enrichSlot(base);
+    return {
+      ...enriched,
+      fcm_updated_at,
+      has_slot: Boolean(slot),
+    };
+  });
+}
+
 module.exports = {
   listSlots,
   listSlotsEnriched,
+  listConnectedDevices,
   enrichSlot,
   findByDeviceId,
   findByEvolutionInstance,

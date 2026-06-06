@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Central WhatsApp — 6 dispositivos</title>
+  <title>Central WhatsApp</title>
   <style>
     :root {
       --bg: #0f0f0f;
@@ -186,7 +186,10 @@
     }
     table.data th { color: var(--muted); font-weight: 600; }
     table.data tr:last-child td { border-bottom: none; }
-    .empty { padding: 24px; color: var(--muted); text-align: center; }
+    .slot.connected { border-color: #2e7d32; }
+    .slot .hint { font-size: 0.72rem; color: var(--muted); margin: 0 0 10px; }
+    details.advanced { margin-top: 10px; font-size: 0.8rem; }
+    details.advanced summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -219,7 +222,10 @@
   <main>
     <div style="grid-column: 1 / -1">
       <div id="panel-operacao" class="tab-panel active">
-        <div class="grid" id="slots-grid"></div>
+        <p class="hint" id="operacao-hint" style="padding:0 0 12px;margin:0;color:var(--muted);font-size:0.85rem">
+          Só aparecem celulares com APK aberto e FCM registrado (Salvar no app).
+        </p>
+        <div class="grid" id="operacao-grid"></div>
       </div>
       <div id="panel-celulares" class="tab-panel">
         <div class="table-wrap" id="devices-table"></div>
@@ -442,24 +448,46 @@
       return '<span class="badge">' + st + '</span>' + fcm;
     }
 
-    function renderSlots(slots) {
-      const grid = document.getElementById("slots-grid");
-      grid.innerHTML = slots.map((s) => `
-        <div class="slot" data-slot-id="${s.slot_id}">
-          <h2>${esc(s.label)}</h2>
-          <div class="sub">${esc(s.device_id)} · ${esc(s.evolution_instance || "—")}</div>
+    function renderOperacao(devices) {
+      const grid = document.getElementById("operacao-grid");
+      if (!devices.length) {
+        grid.innerHTML = `
+          <div class="empty" style="grid-column:1/-1">
+            Nenhum celular online.<br><br>
+            Abra o APK → URL/token corretos → toque <strong>Salvar</strong> → volte aqui.
+          </div>`;
+        return;
+      }
+      grid.innerHTML = devices.map((s) => `
+        <div class="slot connected" data-device-id="${esc(s.device_id)}">
+          <h2>${esc(s.label || s.device_id)}</h2>
+          <div class="sub">${esc(s.device_id)} · APK ${esc(fmtTime(s.fcm_updated_at))}</div>
           <div class="badges">${phoneBadge(s)} ${evoBadge(s.evo_status)}</div>
-          <div class="msg">${esc(s.last_message || "—")}</div>
-          <input class="session-label" data-device="${s.device_id}" value="${esc(s.session_label || "")}" placeholder="session_label" />
-          <input class="phone-e164" data-device="${s.device_id}" value="${esc(s.phone_e164 || "")}" placeholder="+55..." />
-          <div class="actions">
-            <button class="warn" onclick="clearWa('${s.device_id}')">Limpar</button>
-            <button class="primary" onclick="switchWa('${s.device_id}')">Restaurar</button>
-            <button onclick="registerWa('${s.device_id}')">Cadastrar</button>
-            <button onclick="showQr('${s.evolution_instance}')">QR</button>
+          <div class="msg">${esc(s.last_message || "Pronto para comandos")}</div>
+          <label class="meta">Instância Evolution</label>
+          <input class="evo-instance" data-device="${esc(s.device_id)}"
+            value="${esc(s.evolution_instance || "")}" placeholder="ex: wa-j5" />
+          <label class="meta">Número (E.164)</label>
+          <input class="phone-e164" data-device="${esc(s.device_id)}"
+            value="${esc(s.phone_e164 || "")}" placeholder="5561981993760" />
+          <div class="actions" style="margin-top:8px">
+            <button class="primary" onclick="openWa('${esc(s.device_id)}')">Abrir WA</button>
+            <button onclick="navLinkPhone('${esc(s.device_id)}')">Menu pairing</button>
+            <button class="primary" onclick="pairEvolution('${esc(s.device_id)}')">Pair Evolution</button>
           </div>
-          <input class="sms-code" data-device="${s.device_id}" placeholder="código SMS (6 dígitos)" maxlength="8" />
-          <button style="width:100%;margin-top:4px" onclick="sendCode('${s.device_id}')">Enviar código</button>
+          <details class="advanced">
+            <summary>Mais ações (sessão / cadastro)</summary>
+            <input class="session-label" data-device="${esc(s.device_id)}"
+              value="${esc(s.session_label || "")}" placeholder="session_label" />
+            <div class="actions">
+              <button class="warn" onclick="clearWa('${esc(s.device_id)}')">Limpar</button>
+              <button onclick="switchWa('${esc(s.device_id)}')">Restaurar sessão</button>
+              <button onclick="registerWa('${esc(s.device_id)}')">Cadastrar</button>
+              <button onclick="showQr('${esc(s.evolution_instance)}')">QR</button>
+            </div>
+            <input class="sms-code" data-device="${esc(s.device_id)}" placeholder="código SMS" maxlength="8" />
+            <button style="width:100%;margin-top:4px" onclick="sendCode('${esc(s.device_id)}')">Enviar código SMS</button>
+          </details>
         </div>
       `).join("");
     }
@@ -501,16 +529,17 @@
             error: e.message,
           })),
         ]);
-        renderSlots(dash.slots || []);
+        renderOperacao(dash.connected_devices || []);
         renderEvents(dash.events || []);
         renderDevices(devicesData.devices || []);
         renderSessions(sessionsData.sessions || []);
         renderEvolution(evoData);
+        const online = (dash.connected_devices || []).length;
         const fcm = devicesData.total || 0;
         const evoOpen = (evoData.instances || []).filter((i) => i.state === "open").length;
         const evo = evoData.enabled ? `${evoOpen}/${evoData.instances?.length || 0} Evolution` : "Evolution off";
         document.getElementById("header-meta").textContent =
-          `${dash.slots?.length || 0} slots · ${fcm} APK · ${evo}`;
+          `${online} online · ${fcm} APK · ${evo}`;
       } catch (err) {
         console.error(err);
       }
@@ -523,6 +552,46 @@
       } catch (e) {
         alert(e.message);
       }
+    }
+
+    async function openWa(deviceId) {
+      try {
+        await api("/admin/whatsapp/macro/home", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId }),
+        });
+        await new Promise((r) => setTimeout(r, 2000));
+        await api("/admin/whatsapp/macro/open-whatsapp", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function navLinkPhone(deviceId) {
+      try {
+        await api("/admin/whatsapp/macro/navigate-link-phone", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function pairEvolution(deviceId) {
+      const instance = getInput(deviceId, "evo-instance");
+      if (!instance) return alert("Informe a instância Evolution (ex: wa-j5)");
+      try {
+        await api("/evolution/instances/" + encodeURIComponent(instance) + "/pair", {
+          method: "POST",
+          body: JSON.stringify({
+            device_id: deviceId,
+            request_id: "ui-pair-" + Date.now(),
+          }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
     }
 
     async function clearWa(deviceId) {
