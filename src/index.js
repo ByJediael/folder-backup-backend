@@ -21,6 +21,7 @@ const {
   sendMacroHomePush,
   sendMacroOpenWhatsappPush,
   sendMacroNavigateLinkPhonePush,
+  sendMacroInstallWhatsappPush,
   fcmStatus,
   listRegisteredDevices,
 } = require("./fcm");
@@ -639,6 +640,32 @@ app.post("/api/v1/admin/whatsapp/macro/navigate-link-phone", auth, async (req, r
   res.status(push.ok ? 200 : 502).json({
     ok: push.ok,
     step: "navigate_link_phone",
+    request_id,
+    device_id,
+    ...fcmResponse(push),
+  });
+});
+
+/** Macro: abrir a Play Store na página do WhatsApp Business e instalar. */
+app.post("/api/v1/admin/whatsapp/macro/install", auth, async (req, res) => {
+  const device_id = req.body?.device_id;
+  const request_id = req.body?.request_id || `macro-${crypto.randomUUID().slice(0, 8)}`;
+
+  if (!device_id || typeof device_id !== "string") {
+    return res.status(400).json({ error: "device_id obrigatório" });
+  }
+
+  const push = await sendMacroInstallWhatsappPush(device_id, request_id);
+  logEvent("wa_macro_step", {
+    step: "install_whatsapp",
+    device_id,
+    request_id,
+    ...fcmResponse(push),
+  });
+
+  res.status(push.ok ? 200 : 502).json({
+    ok: push.ok,
+    step: "install_whatsapp",
     request_id,
     device_id,
     ...fcmResponse(push),
