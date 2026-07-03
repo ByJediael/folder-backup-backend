@@ -1,0 +1,277 @@
+{
+  "name": "WhatsApp — Cadastro Robusto Hero SMS (com Loop de Espera)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Iniciar Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 240]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "device_id", "name": "device_id", "value": "phone-01", "type": "string" },
+            { "id": "session_label", "name": "session_label", "value": "numero-hero-1", "type": "string" },
+            { "id": "display_name", "name": "display_name", "value": "Conta Backup", "type": "string" },
+            { "id": "hero_api_key", "name": "hero_api_key", "value": "SUA_API_KEY_HERO", "type": "string" },
+            { "id": "hero_service", "name": "hero_service", "value": "wa", "type": "string" },
+            { "id": "hero_country", "name": "hero_country", "value": "73", "type": "string" },
+            { "id": "backend_base", "name": "backend_base", "value": "https://backup.jediael.uk", "type": "string" },
+            { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" },
+            { "id": "retries", "name": "retries", "value": 0, "type": "number" }
+          ]
+        }
+      },
+      "id": "set-vars",
+      "name": "Variáveis",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [320, 240]
+    },
+    {
+      "parameters": {
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=getNumber&api_key={{ $json.hero_api_key }}&service={{ $json.hero_service }}&country={{ $json.hero_country }}",
+        "options": {}
+      },
+      "id": "hero-get-number",
+      "name": "1. Hero SMS getNumber",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.data ?? $input.first().json.body ?? '';\nconst text = typeof raw === 'string' ? raw : JSON.stringify(raw);\n\nif (text.includes('NO_BALANCE') || text.includes('NO_NUMBERS')) {\n  throw new Error('Falha na Hero SMS: ' + text);\n}\n\nlet activationId = '';\nlet phone = '';\nif (text.includes('ACCESS_NUMBER')) {\n  const parts = text.split(':');\n  activationId = parts[1] || '';\n  phone = parts[2] || '';\n} else {\n  throw new Error('Resposta inesperada da Hero: ' + text);\n}\n\nif (!phone.startsWith('+')) phone = '+' + phone.replace(/\\D/g, '');\nconst vars = $('Variáveis').first().json;\n\nreturn [{\n  json: {\n    ...vars,\n    activation_id: activationId,\n    phone_e164: phone,\n    request_id: 'reg-' + Math.random().toString(36).slice(2, 10)\n  }\n}];"
+      },
+      "id": "parse-number",
+      "name": "2. Parse Número",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/clear",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"device_id\":\"{{ $json.device_id }}\"}"
+      },
+      "id": "clear-wa",
+      "name": "3. Limpar WA no Celular",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 240]
+    },
+    {
+      "parameters": { "amount": 8, "unit": "seconds" },
+      "id": "wait-clear",
+      "name": "Aguardar 8s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1120, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('2. Parse Número').item.json.backend_base }}/api/v1/admin/whatsapp/register",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('2. Parse Número').item.json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $('2. Parse Número').item.json.device_id }}\",\n  \"request_id\": \"{{ $('2. Parse Número').item.json.request_id }}\",\n  \"phone_e164\": \"{{ $('2. Parse Número').item.json.phone_e164 }}\",\n  \"session_label\": \"{{ $('2. Parse Número').item.json.session_label }}\",\n  \"display_name\": \"{{ $('2. Parse Número').item.json.display_name }}\"\n}"
+      },
+      "id": "register-wa",
+      "name": "4. Iniciar Cadastro (FCM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 240]
+    },
+    {
+      "parameters": { "amount": 15, "unit": "seconds" },
+      "id": "wait-sms",
+      "name": "Espera 15s (Loop)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1520, 240]
+    },
+    {
+      "parameters": {
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=getStatus&api_key={{ $('2. Parse Número').item.json.hero_api_key }}&id={{ $('2. Parse Número').item.json.activation_id }}",
+        "options": {}
+      },
+      "id": "hero-poll",
+      "name": "5. Hero getStatus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1720, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.data ?? $json.body }}",
+              "operation": "contains",
+              "value2": "STATUS_OK"
+            }
+          ]
+        }
+      },
+      "id": "if-code-received",
+      "name": "Código Chegou?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1920, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.data ?? $input.first().json.body ?? '';\nconst text = typeof raw === 'string' ? raw : JSON.stringify(raw);\nconst m = text.match(/(\\d{6})/);\nconst code = m ? m[1] : '';\nconst prev = $('2. Parse Número').first().json;\nreturn [{ json: { ...prev, sms_code: code } }];"
+      },
+      "id": "parse-code",
+      "name": "6. Extrair Código",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2150, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.backend_base }}/api/v1/admin/whatsapp/register-code",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.backend_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"device_id\": \"{{ $json.device_id }}\",\n  \"request_id\": \"{{ $json.request_id }}\",\n  \"code\": \"{{ $json.sms_code }}\"\n}"
+      },
+      "id": "send-code",
+      "name": "7. Enviar Código ao Celular",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2350, 160]
+    },
+    {
+      "parameters": {
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=setStatus&api_key={{ $('2. Parse Número').item.json.hero_api_key }}&id={{ $('2. Parse Número').item.json.activation_id }}&status=6",
+        "options": {}
+      },
+      "id": "hero-set-success",
+      "name": "8. Hero SMS Concluir",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2550, 160],
+      "notes": "Notifica a Hero que o código foi recebido e a transação finalizada com sucesso."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $('2. Parse Número').item.json.retries }}",
+              "operation": "less",
+              "value2": 12
+            }
+          ]
+        }
+      },
+      "id": "if-retry",
+      "name": "Retentar? (<3 min)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2150, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('2. Parse Número').first().json;\nprev.retries = (prev.retries || 0) + 1;\nreturn [{ json: prev }];"
+      },
+      "id": "inc-retries",
+      "name": "Incrementar Retativa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2350, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=setStatus&api_key={{ $('2. Parse Número').item.json.hero_api_key }}&id={{ $('2. Parse Número').item.json.activation_id }}&status=8",
+        "options": {}
+      },
+      "id": "hero-cancel",
+      "name": "9. Hero SMS Cancelar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2350, 440],
+      "notes": "Cancela a ativação na Hero SMS para estornar o saldo se o código expirar."
+    }
+  ],
+  "connections": {
+    "Iniciar Manual": {
+      "main": [[{ "node": "Variáveis", "type": "main", "index": 0 }]]
+    },
+    "Variáveis": {
+      "main": [[{ "node": "1. Hero SMS getNumber", "type": "main", "index": 0 }]]
+    },
+    "1. Hero SMS getNumber": {
+      "main": [[{ "node": "2. Parse Número", "type": "main", "index": 0 }]]
+    },
+    "2. Parse Número": {
+      "main": [[{ "node": "3. Limpar WA no Celular", "type": "main", "index": 0 }]]
+    },
+    "3. Limpar WA no Celular": {
+      "main": [[{ "node": "Aguardar 8s", "type": "main", "index": 0 }]]
+    },
+    "Aguardar 8s": {
+      "main": [[{ "node": "4. Iniciar Cadastro (FCM)", "type": "main", "index": 0 }]]
+    },
+    "4. Iniciar Cadastro (FCM)": {
+      "main": [[{ "node": "Espera 15s (Loop)", "type": "main", "index": 0 }]]
+    },
+    "Espera 15s (Loop)": {
+      "main": [[{ "node": "5. Hero getStatus", "type": "main", "index": 0 }]]
+    },
+    "5. Hero getStatus": {
+      "main": [[{ "node": "Código Chegou?", "type": "main", "index": 0 }]]
+    },
+    "Código Chegou?": {
+      "main": [
+        [{ "node": "6. Extrair Código", "type": "main", "index": 0 }],
+        [{ "node": "Retentar? (<3 min)", "type": "main", "index": 0 }]
+      ]
+    },
+    "6. Extrair Código": {
+      "main": [[{ "node": "7. Enviar Código ao Celular", "type": "main", "index": 0 }]]
+    },
+    "7. Enviar Código ao Celular": {
+      "main": [[{ "node": "8. Hero SMS Concluir", "type": "main", "index": 0 }]]
+    },
+    "Retentar? (<3 min)": {
+      "main": [
+        [{ "node": "Incrementar Retativa", "type": "main", "index": 0 }],
+        [{ "node": "9. Hero SMS Cancelar", "type": "main", "index": 0 }]
+      ]
+    },
+    "Incrementar Retativa": {
+      "main": [[{ "node": "Espera 15s (Loop)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

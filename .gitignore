@@ -3,3 +3,4 @@ data/
 .env
 *.log
 firebase/serviceAccount.json
+window_dump.xml

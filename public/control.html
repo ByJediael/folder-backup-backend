@@ -486,6 +486,7 @@
               value="${esc(s.session_label || "")}" placeholder="session_label" />
             <div class="actions">
               <button class="warn" onclick="clearWa('${esc(s.device_id)}')">Limpar</button>
+              <button onclick="installWa('${esc(s.device_id)}')">Instalar WA</button>
               <button onclick="switchWa('${esc(s.device_id)}')">Restaurar sessão</button>
               <button onclick="registerWa('${esc(s.device_id)}')">Cadastrar</button>
               <button onclick="showQr('${esc(s.evolution_instance)}')">QR</button>
@@ -603,6 +604,16 @@
     async function clearWa(deviceId) {
       try {
         await api("/admin/whatsapp/clear", {
+          method: "POST",
+          body: JSON.stringify({ device_id: deviceId }),
+        });
+        await refresh();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function installWa(deviceId) {
+      try {
+        await api("/admin/whatsapp/macro/install", {
           method: "POST",
           body: JSON.stringify({ device_id: deviceId }),
         });
