@@ -1,6 +1,18 @@
 # Folder Backup Backend — status
 
-Última atualização: 2026-05-17
+Última atualização: 2026-07-20
+
+> Progresso do produto (pool + link de leads): ver **[`ROADMAP.md`](ROADMAP.md)**.
+
+## Link de leads (novo)
+
+Com números `pool_status=online` + `phone_e164` no slot:
+
+```text
+{PUBLIC_BASE_URL}/r/default
+```
+
+Redirect 302 → `https://wa.me/<numero>`. Admin: `GET /api/v1/admin/pool`, `GET /api/v1/admin/metrics`.
 
 ## Automação com FCM (sem Sincronizar manual)
 

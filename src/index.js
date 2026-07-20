@@ -8,6 +8,12 @@ const { appendEvent, readEvents } = require("./events");
 const deviceSessions = require("./device-sessions");
 const slots = require("./slots");
 const evolution = require("./evolution");
+const leadRouter = require("./lead-router");
+const poolHealth = require("./pool-health");
+const remountQueue = require("./remount-queue");
+const heroSms = require("./hero-sms");
+const deviceActions = require("./device-actions");
+const { linkWhatsappToEvolution } = require("./evolution-link");
 const {
   saveFcmToken,
   deleteFcmToken,
@@ -34,6 +40,8 @@ const {
 } = require("./whatsapp-register");
 
 const EVOLUTION_WEBHOOK_SECRET = process.env.EVOLUTION_WEBHOOK_SECRET || "";
+const POOL_HEALTH_INTERVAL_MS = Math.max(0, Number(process.env.POOL_HEALTH_INTERVAL_MS || 60000));
+const REMOUNT_INTERVAL_MS = Math.max(0, Number(process.env.REMOUNT_INTERVAL_MS || 30000));
 
 const PORT = Number(process.env.PORT || 8080);
 const TOKEN = process.env.BACKUP_API_TOKEN || "dev-token-change-me";
@@ -106,6 +114,32 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "folder-backup-backend" });
 });
 
+/**
+ * Link de campanha (público): rodízio de WAs online → 302 wa.me
+ * Ex.: GET /r/default  |  GET /r/fb-ads?text=Oi
+ */
+app.get("/r/:campaign", (req, res) => {
+  const campaign = req.params.campaign || "default";
+  const picked = leadRouter.pickAndLog(campaign, {
+    ip: req.headers["x-forwarded-for"] || req.socket?.remoteAddress || null,
+    ua: req.headers["user-agent"] || null,
+    text: typeof req.query.text === "string" ? req.query.text : undefined,
+    ref: typeof req.query.ref === "string" ? req.query.ref : undefined,
+  });
+
+  if (!picked.ok) {
+    res.status(503).type("html").send(`<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Indisponível</title></head>
+<body style="font-family:system-ui;padding:2rem;text-align:center">
+  <h1>WhatsApp temporariamente indisponível</h1>
+  <p>Tente novamente em instantes.</p>
+</body></html>`);
+    return;
+  }
+
+  res.redirect(302, picked.url);
+});
+
 app.get("/api/v1/health", auth, (_req, res) => {
   res.json({
     status: "ok",
@@ -113,8 +147,125 @@ app.get("/api/v1/health", auth, (_req, res) => {
     n8n_webhooks: isConfigured(),
     fcm: fcmStatus(),
     evolution: evolution.statusInfo(),
+    hero_sms: heroSms.statusInfo(),
+    pool: remountQueue.poolCounts(),
     public_base_url: PUBLIC_BASE_URL,
+    lead_link_example: `${PUBLIC_BASE_URL}/r/default`,
   });
+});
+
+/** Pool de números para o link */
+app.get("/api/v1/admin/pool", auth, (_req, res) => {
+  const list = slots.listSlotsEnriched();
+  res.json({
+    slots: list,
+    routable: leadRouter.listRoutableSlots().map((s) => s.slot_id),
+    counts: remountQueue.poolCounts(),
+  });
+});
+
+app.post("/api/v1/admin/pool/health", auth, async (_req, res) => {
+  const result = await poolHealth.syncAll();
+  logEvent("pool_health_sync", result.summary);
+  res.json({ ok: true, ...result });
+});
+
+app.post("/api/v1/admin/pool/:slotId/offline", auth, (req, res) => {
+  const updated = poolHealth.markOffline(req.params.slotId, req.body?.message);
+  if (!updated) return res.status(404).json({ error: "slot não encontrado" });
+  logEvent("pool_mark_offline", { slot_id: req.params.slotId });
+  res.json({ ok: true, slot: slots.enrichSlot(updated) });
+});
+
+app.post("/api/v1/admin/pool/:slotId/online", auth, (req, res) => {
+  const updated = poolHealth.markOnline(req.params.slotId, req.body?.message);
+  if (!updated) return res.status(404).json({ error: "slot não encontrado" });
+  if (updated.error) {
+    return res.status(400).json({ error: updated.error, slot: slots.enrichSlot(updated.slot) });
+  }
+  logEvent("pool_mark_online", { slot_id: req.params.slotId });
+  res.json({ ok: true, slot: slots.enrichSlot(updated) });
+});
+
+/** Remonta automática */
+app.get("/api/v1/admin/remount/queue", auth, (_req, res) => {
+  res.json({
+    jobs: remountQueue.listJobs(),
+    locks: remountQueue.getLocks(),
+    pool: remountQueue.poolCounts(),
+    auto_enqueue: remountQueue.REMOUNT_AUTO_ENQUEUE,
+    buffer_target: remountQueue.POOL_ONLINE_BUFFER,
+  });
+});
+
+app.post("/api/v1/admin/remount", auth, (req, res) => {
+  const { slot_id, device_id, all_offline, reason } = req.body || {};
+  if (all_offline) {
+    const results = remountQueue.enqueueOfflineSlots();
+    logEvent("remount_enqueue_offline", { count: results.length });
+    return res.status(201).json({ ok: true, results });
+  }
+  const result = remountQueue.enqueue({ slot_id, device_id, reason: reason || "manual" });
+  if (!result.ok) return res.status(400).json(result);
+  logEvent("remount_enqueued", {
+    job_id: result.job.id,
+    slot_id: result.job.slot_id,
+    device_id: result.job.device_id,
+    deduped: Boolean(result.deduped),
+  });
+  res.status(result.deduped ? 200 : 201).json(result);
+});
+
+app.post("/api/v1/admin/remount/process", auth, async (_req, res) => {
+  const tick = await remountQueue.processTick();
+  logEvent("remount_tick", {
+    processed: tick.processed,
+    pool: tick.pool,
+  });
+  res.json({ ok: true, ...tick });
+});
+
+app.post("/api/v1/admin/remount/:jobId/cancel", auth, (req, res) => {
+  const result = remountQueue.cancelJob(req.params.jobId);
+  if (!result.ok) return res.status(404).json(result);
+  logEvent("remount_cancelled", { job_id: req.params.jobId });
+  res.json(result);
+});
+
+/** Métricas do link + pool */
+app.get("/api/v1/admin/metrics", auth, (_req, res) => {
+  const today = leadRouter.metricsToday();
+  const pool = remountQueue.poolCounts();
+  const list = slots.listSlots();
+  const bans = list.reduce((sum, s) => sum + (Number(s.ban_count) || 0), 0);
+  const remounts = list.reduce((sum, s) => sum + (Number(s.remount_count) || 0), 0);
+  res.json({
+    today,
+    pool,
+    buffer: {
+      target: remountQueue.POOL_ONLINE_BUFFER,
+      online: pool.online,
+      deficit: Math.max(0, remountQueue.POOL_ONLINE_BUFFER - pool.online),
+      auto_enqueue: remountQueue.REMOUNT_AUTO_ENQUEUE,
+    },
+    bans_total: bans,
+    remounts_total: remounts,
+    remount_jobs: {
+      pending: remountQueue.listJobs().filter((j) => j.status === "pending").length,
+      running: remountQueue.listJobs().filter((j) => j.status === "running").length,
+      failed: remountQueue.listJobs().filter((j) => j.status === "failed").length,
+      completed: remountQueue.listJobs().filter((j) => j.status === "completed").length,
+    },
+    locks: remountQueue.getLocks(),
+    hero_sms: heroSms.statusInfo(),
+    lead_link_example: `${PUBLIC_BASE_URL}/r/default`,
+  });
+});
+
+app.get("/api/v1/admin/leads/hits", auth, (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 100, 1000);
+  const campaign = req.query.campaign;
+  res.json({ hits: leadRouter.readHits({ limit, campaign }) });
 });
 
 app.get("/api/v1/dashboard", auth, async (_req, res) => {
@@ -132,6 +283,8 @@ app.get("/api/v1/dashboard", auth, async (_req, res) => {
     fcm: fcmStatus(),
     evolution: { ...evolution.statusInfo(), instances: evoInstances },
     n8n_configured: isConfigured(),
+    pool: remountQueue.poolCounts(),
+    metrics_today: leadRouter.metricsToday(),
   });
 });
 
@@ -286,7 +439,7 @@ app.get("/api/v1/devices/:deviceId/commands", auth, (req, res) => {
     (j) => j.device_id === deviceId && j.status === "pending",
   );
 
-  const commands = pending.map((j) => ({
+  const jobCommands = pending.map((j) => ({
     id: j.id,
     type: j.type,
     folder_id: j.folder_id || undefined,
@@ -294,6 +447,18 @@ app.get("/api/v1/devices/:deviceId/commands", auth, (req, res) => {
     absolute_path: j.absolute_path || undefined,
     backup_id: j.backup_id || undefined,
     incremental: j.incremental !== false,
+  }));
+
+  const waActions = deviceActions.takePending(deviceId).map((a) => ({
+    id: a.id,
+    type: "WA_ACTION",
+    action: a.action,
+    request_id: a.request_id,
+    pairing_code: a.pairing_code || undefined,
+    evolution_instance: a.evolution_instance || undefined,
+    phone_e164: a.phone_e164 || undefined,
+    session_label: a.session_label || undefined,
+    display_name: a.display_name || undefined,
   }));
 
   const remaining = jobs.filter(
@@ -306,7 +471,39 @@ app.get("/api/v1/devices/:deviceId/commands", auth, (req, res) => {
   }));
   writeJobs([...remaining, ...dispatched]);
 
-  res.json({ commands });
+  res.json({ commands: [...jobCommands, ...waActions] });
+});
+
+/** Um passo: Evolution pairing + fila no APK (sem depender só de FCM). */
+app.post("/api/v1/admin/whatsapp/link-evolution", auth, async (req, res) => {
+  const result = await linkWhatsappToEvolution({
+    device_id: req.body?.device_id,
+    phone_e164: req.body?.phone_e164,
+    evolution_instance: req.body?.evolution_instance,
+    navigate_first: req.body?.navigate_first !== false,
+    wait_open_ms: Math.min(Number(req.body?.wait_open_ms) || 0, 180000),
+  });
+
+  logEvent("wa_link_evolution", {
+    device_id: req.body?.device_id,
+    phone_e164: req.body?.phone_e164,
+    evolution_instance: result.evolution_instance,
+    ok: result.ok,
+    pairing_code: result.pairing_code,
+    delivery: result.delivery,
+  });
+
+  res.status(result.ok ? 200 : 502).json(result);
+});
+
+app.get("/api/v1/admin/device-actions", auth, (req, res) => {
+  res.json({
+    actions: deviceActions.list({
+      device_id: req.query.device_id,
+      status: req.query.status,
+      limit: Math.min(Number(req.query.limit) || 50, 200),
+    }),
+  });
 });
 
 app.post("/api/v1/upload", auth, upload.single("file"), (req, res) => {
@@ -910,6 +1107,14 @@ app.post("/api/v1/evolution/instances/:name/pair", auth, async (req, res) => {
       pairingCode,
       name,
     );
+    deviceActions.enqueue({
+      device_id,
+      action: "submit_pairing_code",
+      request_id,
+      pairing_code: pairingCode,
+      evolution_instance: name,
+      phone_e164: phone_e164.trim(),
+    });
   }
 
   logEvent("evo_pairing_code", {
@@ -921,9 +1126,10 @@ app.post("/api/v1/evolution/instances/:name/pair", auth, async (req, res) => {
     connection_state: state,
     fcm_ok: fcmPush.ok,
     fcm_error: fcmPush.error ?? null,
+    queued: Boolean(pairingCode),
   });
 
-  res.status(pairingCode && fcmPush.ok ? 200 : pairingCode ? 502 : 200).json({
+  res.status(pairingCode ? 200 : 502).json({
     ok: Boolean(pairingCode),
     instance: name,
     pairing_code: pairingCode,
@@ -933,6 +1139,7 @@ app.post("/api/v1/evolution/instances/:name/pair", auth, async (req, res) => {
     fcm_ok: fcmPush.ok,
     fcm_message_id: fcmPush.messageId ?? null,
     fcm_error: fcmPush.error ?? null,
+    delivery: fcmPush.ok ? "fcm+queue" : pairingCode ? "queue_only" : "failed",
     raw: conn.data,
   });
 });
@@ -967,10 +1174,7 @@ app.post("/api/v1/webhooks/evolution", (req, res) => {
   else if (state.includes("qr") || eventName.includes("qrcode")) evo_status = "qr";
 
   if (instance) {
-    slots.updateSlotByEvolution(instance, {
-      evo_status,
-      last_message: `Evolution ${eventName}: ${stateRaw || evo_status}`,
-    });
+    poolHealth.applyEvolutionWebhook(instance, evo_status);
   }
 
   if (evo_status === "open") {
@@ -987,6 +1191,14 @@ app.post("/api/v1/webhooks/evolution", (req, res) => {
     evo_status,
     evolution_payload: body,
   });
+
+  // Desconectou → enfileira remonta se auto estiver ligado
+  if (evo_status === "close" && remountQueue.REMOUNT_AUTO_ENQUEUE && instance) {
+    const slot = slots.findByEvolutionInstance(instance);
+    if (slot) {
+      remountQueue.enqueue({ slot_id: slot.slot_id, reason: "evo_disconnected" });
+    }
+  }
 
   res.json({ ok: true });
 });
@@ -1023,13 +1235,30 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("folder-backup-backend");
   console.log(`  listen:  http://0.0.0.0:${PORT}`);
   console.log(`  celular: ${PUBLIC_BASE_URL}  (mesma rede Wi-Fi, sem /webhook)`);
+  console.log(`  leads:   ${PUBLIC_BASE_URL}/r/default`);
   console.log(`  data:    ${DATA_DIR}`);
   console.log(`  n8n:     ${isConfigured() ? "webhooks ativos" : "N8N_WEBHOOK_URL não definido"}`);
   const fcm = fcmStatus();
   console.log(
     `  fcm:     ${fcm.enabled ? (fcm.initialized ? "ativo" : `erro: ${fcm.error}`) : "desativado (defina FIREBASE_SERVICE_ACCOUNT_PATH)"}`,
   );
+  console.log(`  hero:    ${heroSms.isConfigured() ? "API key ok" : "HERO_SMS_API_KEY não definido"}`);
   console.log(`  auth:    Authorization: Bearer <BACKUP_API_TOKEN>`);
-  console.log(`  central: http://127.0.0.1:${PORT}/  (6 slots)`);
+  console.log(`  central: http://127.0.0.1:${PORT}/  (slots + pool)`);
+  console.log(`  roadmap: ROADMAP.md`);
   console.log(`  legado:  http://127.0.0.1:${PORT}/switch`);
+
+  if (POOL_HEALTH_INTERVAL_MS > 0) {
+    setInterval(() => {
+      poolHealth.syncAll().catch((err) => console.warn("[pool-health]", err.message || err));
+    }, POOL_HEALTH_INTERVAL_MS);
+    console.log(`  pool:    health a cada ${POOL_HEALTH_INTERVAL_MS}ms`);
+  }
+
+  if (REMOUNT_INTERVAL_MS > 0) {
+    setInterval(() => {
+      remountQueue.processTick().catch((err) => console.warn("[remount]", err.message || err));
+    }, REMOUNT_INTERVAL_MS);
+    console.log(`  remount: tick a cada ${REMOUNT_INTERVAL_MS}ms (buffer=${remountQueue.POOL_ONLINE_BUFFER})`);
+  }
 });

@@ -26,6 +26,11 @@ function readSlotsFile() {
         phone_e164: null,
         phone_status: "idle",
         evo_status: "unknown",
+        pool_status: "offline",
+        in_pool: true,
+        last_check: null,
+        ban_count: 0,
+        remount_count: 0,
         last_message: null,
         updated_at: new Date().toISOString(),
       })),
@@ -79,6 +84,11 @@ function upsertSlot(patch) {
       phone_e164: patch.phone_e164 ?? null,
       phone_status: patch.phone_status || "idle",
       evo_status: patch.evo_status || "unknown",
+      pool_status: patch.pool_status || "offline",
+      in_pool: patch.in_pool !== false,
+      last_check: patch.last_check ?? null,
+      ban_count: Number(patch.ban_count) || 0,
+      remount_count: Number(patch.remount_count) || 0,
       last_message: patch.last_message ?? null,
       updated_at: now,
     });
@@ -116,9 +126,18 @@ function enrichSlot(slot) {
     last_message = switchSt.message || last_message;
   }
 
+  const pool_status =
+    slot.pool_status ||
+    (slot.evo_status === "open" && slot.phone_e164 ? "online" : "offline");
+
   return {
     ...slot,
     phone_status,
+    pool_status,
+    in_pool: slot.in_pool !== false,
+    last_check: slot.last_check ?? null,
+    ban_count: Number(slot.ban_count) || 0,
+    remount_count: Number(slot.remount_count) || 0,
     last_message,
     fcm_registered: fcmRegistered,
     switch_status: switchSt,
