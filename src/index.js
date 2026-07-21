@@ -13,7 +13,16 @@ const poolHealth = require("./pool-health");
 const remountQueue = require("./remount-queue");
 const heroSms = require("./hero-sms");
 const deviceActions = require("./device-actions");
-const { linkWhatsappToEvolution } = require("./evolution-link");
+const {
+  linkWhatsappToEvolution,
+  dispatchOpenAfterForceStop,
+  dispatchPairingAfterHome,
+  dispatchPairingAfterNavigation,
+  pairInstanceToDevice,
+  resetAfterPairingFailure,
+} = require("./evolution-link");
+const pendingPairing = require("./pending-pairing");
+const activePairing = require("./active-pairing");
 const {
   saveFcmToken,
   deleteFcmToken,
@@ -482,6 +491,7 @@ app.post("/api/v1/admin/whatsapp/link-evolution", auth, async (req, res) => {
     evolution_instance: req.body?.evolution_instance,
     navigate_first: req.body?.navigate_first !== false,
     wait_open_ms: Math.min(Number(req.body?.wait_open_ms) || 0, 180000),
+    force_new: req.body?.force_new === true,
   });
 
   logEvent("wa_link_evolution", {
@@ -843,6 +853,81 @@ app.post("/api/v1/admin/whatsapp/macro/navigate-link-phone", auth, async (req, r
   });
 });
 
+/** Tela anti-golpe: Conectar dispositivo → nome → salvar. */
+app.post("/api/v1/admin/whatsapp/macro/confirm-scam-warning", auth, async (req, res) => {
+  const device_id = req.body?.device_id;
+  const display_name = String(req.body?.display_name || "Evolution Backup").trim() || "Evolution Backup";
+  const evolution_instance = req.body?.evolution_instance || null;
+  const request_id = req.body?.request_id || `scam-${crypto.randomUUID().slice(0, 8)}`;
+
+  if (!device_id || typeof device_id !== "string") {
+    return res.status(400).json({ error: "device_id obrigatório" });
+  }
+
+  const queued = deviceActions.enqueue({
+    device_id,
+    action: "macro_confirm_scam_warning",
+    request_id,
+    display_name,
+    evolution_instance,
+  });
+
+  logEvent("wa_macro_step", {
+    step: "confirm_scam_warning",
+    device_id,
+    request_id,
+    display_name,
+    action_id: queued.id,
+  });
+
+  res.json({
+    ok: true,
+    step: "confirm_scam_warning",
+    request_id,
+    device_id,
+    display_name,
+    queued_action_id: queued.id,
+  });
+});
+
+/** Pós-pareamento: nome do dispositivo vinculado + salvar. */
+app.post("/api/v1/admin/whatsapp/macro/finish-link-device", auth, async (req, res) => {
+  const device_id = req.body?.device_id;
+  const display_name = String(req.body?.display_name || "Evolution Backup").trim() || "Evolution Backup";
+  const evolution_instance = req.body?.evolution_instance || null;
+  const request_id = req.body?.request_id || `finish-${crypto.randomUUID().slice(0, 8)}`;
+
+  if (!device_id || typeof device_id !== "string") {
+    return res.status(400).json({ error: "device_id obrigatório" });
+  }
+
+  const queued = deviceActions.enqueue({
+    device_id,
+    action: "macro_finish_link_device",
+    request_id,
+    display_name,
+    evolution_instance,
+  });
+
+  logEvent("wa_macro_step", {
+    step: "finish_link_device",
+    device_id,
+    request_id,
+    display_name,
+    evolution_instance,
+    action_id: queued.id,
+  });
+
+  res.json({
+    ok: true,
+    step: "finish_link_device",
+    request_id,
+    device_id,
+    display_name,
+    queued_action_id: queued.id,
+  });
+});
+
 /** Macro: abrir a Play Store na página do WhatsApp Business e instalar. */
 app.post("/api/v1/admin/whatsapp/macro/install", auth, async (req, res) => {
   const device_id = req.body?.device_id;
@@ -996,15 +1081,19 @@ app.get("/api/v1/admin/whatsapp/register-status", auth, (req, res) => {
   res.json(getRegisterStatus(String(device_id)));
 });
 
-/** Resultado genérico do celular (cadastro, export, etc.). */
-app.post("/api/v1/devices/:deviceId/command-result", auth, (req, res) => {
+/** Resultado genérico do celular (cadastro, export, pairing, etc.). */
+app.post("/api/v1/devices/:deviceId/command-result", auth, async (req, res) => {
   const deviceId = req.params.deviceId;
+  const command = req.body?.command;
+  const status = req.body?.status;
+  const requestId = req.body?.request_id;
+
   const updated = updateRegisterFromDevice(deviceId, {
-    request_id: req.body?.request_id,
-    command: req.body?.command,
+    request_id: requestId,
+    command,
     session_label: req.body?.session_label,
     phone_e164: req.body?.phone_e164,
-    status: req.body?.status,
+    status,
     message: req.body?.message,
   });
   slots.updateSlotByDevice(deviceId, {
@@ -1014,10 +1103,132 @@ app.post("/api/v1/devices/:deviceId/command-result", auth, (req, res) => {
     phone_e164: updated.phone_e164 || undefined,
   });
   logEvent("wa_register_status", updated);
-  res.json({ ok: true, status: updated });
+
+  let pairingDispatch = null;
+  if (
+    command === "macro_force_stop_whatsapp" &&
+    status === "completed" &&
+    requestId &&
+    String(requestId).endsWith("-stop")
+  ) {
+    try {
+      const openQueued = await dispatchOpenAfterForceStop(String(requestId));
+      logEvent("wa_force_stop_done", {
+        device_id: deviceId,
+        stop_request_id: requestId,
+        home_request_id: openQueued.home_request_id,
+        ok: openQueued.ok,
+      });
+      pairingDispatch = openQueued;
+    } catch (err) {
+      console.error("[pairing-after-force-stop]", err);
+      pairingDispatch = { ok: false, error: err.message || String(err) };
+    }
+  } else if (
+    command === "macro_open_whatsapp" &&
+    (status === "completed" || status === "completed_with_fallback") &&
+    requestId &&
+    String(requestId).endsWith("-home")
+  ) {
+    try {
+      const homePairing = await dispatchPairingAfterHome(String(requestId));
+      logEvent("wa_home_pairing", {
+        device_id: deviceId,
+        home_request_id: requestId,
+        nav_request_id: homePairing.nav_request_id,
+        pairing_code: homePairing.pairing_code,
+        ok: homePairing.ok,
+      });
+      pairingDispatch = homePairing;
+    } catch (err) {
+      console.error("[pairing-after-home]", err);
+      pairingDispatch = { ok: false, error: err.message || String(err) };
+    }
+  } else if (
+    (command === "macro_navigate_link_phone" || command === "macro_navigate_link_from_home") &&
+    status === "completed" &&
+    requestId
+  ) {
+    try {
+      pairingDispatch = await dispatchPairingAfterNavigation(String(requestId));
+      if (pairingDispatch.ok) {
+        logEvent("wa_pairing_after_nav", {
+          device_id: deviceId,
+          request_id: pairingDispatch.request_id,
+          evolution_instance: pairingDispatch.evolution_instance,
+          pairing_code: pairingDispatch.pairing_code,
+          delivery: pairingDispatch.delivery,
+          reused: pairingDispatch.reused || false,
+          expires_at: pairingDispatch.expires_at || null,
+        });
+        slots.updateSlotByDevice(deviceId, {
+          last_message: pairingDispatch.reused
+            ? `Reenviando pairing ${pairingDispatch.pairing_code}`
+            : `Pairing ${pairingDispatch.pairing_code} enfileirado`,
+        });
+      } else if (pairingDispatch.error !== "no_pending_pairing") {
+        logEvent("wa_pairing_after_nav_failed", {
+          device_id: deviceId,
+          nav_request_id: requestId,
+          error: pairingDispatch.error,
+        });
+      }
+    } catch (err) {
+      console.error("[pairing-after-nav]", err);
+      pairingDispatch = { ok: false, error: err.message || String(err) };
+    }
+  } else if (
+    (command === "macro_navigate_link_phone" || command === "macro_navigate_link_from_home") &&
+    status === "failed" &&
+    requestId
+  ) {
+    pendingPairing.markFailedByNavRequestId(String(requestId), req.body?.message);
+  } else if (command === "submit_pairing_code" && requestId) {
+    if (status === "completed") {
+      activePairing.markCompleted(String(requestId));
+      const pendingRow = pendingPairing.findByRequestId(String(requestId));
+      if (pendingRow?.id) {
+        pendingPairing.update(pendingRow.id, { status: "completed" });
+      }
+    } else if (status === "failed") {
+      activePairing.markFailed(String(requestId), req.body?.message);
+      const pendingRow = pendingPairing.findByRequestId(String(requestId));
+      const instance = pendingRow?.evolution_instance || req.body?.session_label;
+      try {
+        await resetAfterPairingFailure({
+          device_id: deviceId,
+          evolution_instance: instance,
+          reason: req.body?.message,
+        });
+      } catch (err) {
+        console.error("[pairing-reset]", err);
+      }
+      logEvent("wa_pairing_submit_failed", {
+        device_id: deviceId,
+        request_id: requestId,
+        message: req.body?.message,
+        evolution_instance: instance,
+        hint: "Instância apagada. Rode link-evolution com force_new=true (fecha WA + recentes + código novo).",
+      });
+    }
+  }
+
+  res.json({ ok: true, status: updated, pairing_dispatch: pairingDispatch });
 });
 
 /** Evolution API proxy */
+app.delete("/api/v1/admin/evolution/instances", auth, async (_req, res) => {
+  const result = await evolution.deleteAllInstances();
+  if (!result.ok) {
+    return res.status(503).json(result);
+  }
+  activePairing.list().forEach((s) => {
+    if (s.status === "active") activePairing.markFailed(s.request_id, "instances_deleted");
+  });
+  logEvent("evo_delete_all", { count: result.count, deleted: result.deleted });
+  res.json(result);
+});
+
 app.get("/api/v1/evolution/instances", auth, async (_req, res) => {
   const result = await evolution.fetchInstances();
   if (!result.ok) {
@@ -1058,13 +1269,14 @@ app.get("/api/v1/evolution/instances/:name/state", auth, async (req, res) => {
   res.json({ ok: true, instance: name, state: mapped, raw: st.data });
 });
 
-/** Pairing code Evolution + FCM para celular fábrica digitar no WA */
+/** Pairing code Evolution + fila no APK (reutiliza código ativo se ainda válido). */
 app.post("/api/v1/evolution/instances/:name/pair", auth, async (req, res) => {
   const name = req.params.name;
   const device_id = req.body?.device_id;
   const phone_e164 = req.body?.phone_e164;
   const request_id = req.body?.request_id || `pair-${crypto.randomUUID().slice(0, 8)}`;
   const create_if_missing = req.body?.create_if_missing !== false;
+  const force_new = req.body?.force_new === true;
 
   if (!device_id) {
     return res.status(400).json({ error: "device_id obrigatório" });
@@ -1080,67 +1292,69 @@ app.post("/api/v1/evolution/instances/:name/pair", auth, async (req, res) => {
     }
   }
 
-  const conn = await evolution.connectWithPairing(name, phone_e164);
-  if (!conn.ok) {
-    return res.status(conn.status || 502).json({
-      ...conn,
-      hint: conn.error === "pairing_code_not_returned"
-        ? "Evolution não devolveu pairingCode. Não clique Get QR Code antes; use GET /instance/connect/{name}?number=5561…"
-        : undefined,
-    });
-  }
-
-  const pairingCode = evolution.extractPairingCode(conn.data);
-  const state = evolution.mapConnectionState(conn.data);
-
-  slots.updateSlotByEvolution(name, {
-    evo_status: state === "open" ? "open" : "qr",
-    phone_e164: phone_e164.trim(),
-    last_message: pairingCode ? `Pairing: ${pairingCode}` : "Aguardando pairing",
+  const result = await pairInstanceToDevice({
+    device_id,
+    instance: name,
+    phone_e164,
+    request_id,
+    force_new,
   });
 
-  let fcmPush = { ok: false, skipped: true, reason: "no_pairing_code" };
-  if (pairingCode) {
-    fcmPush = await sendSubmitPairingCodePush(
-      device_id,
-      request_id,
-      pairingCode,
-      name,
-    );
-    deviceActions.enqueue({
-      device_id,
-      action: "submit_pairing_code",
-      request_id,
-      pairing_code: pairingCode,
-      evolution_instance: name,
-      phone_e164: phone_e164.trim(),
+  if (!result.ok) {
+    const active = activePairing.getActive(device_id, name);
+    return res.status(result.conn?.status || result.status || 502).json({
+      ...result,
+      active_pairing: active
+        ? {
+            pairing_code: active.pairing_code,
+            expires_at: active.expires_at,
+            request_id: active.request_id,
+          }
+        : null,
+      hint:
+        result.error === "pairing_in_progress"
+          ? "Evolution aguardando código no celular. Reuse o código ativo ou espere expirar (~2 min)."
+          : result.error === "pairing_code_not_returned"
+            ? "Evolution não devolveu pairingCode. Use force_new=true após logout manual se necessário."
+            : undefined,
     });
   }
+
+  slots.updateSlotByEvolution(name, {
+    evo_status: result.connection_state === "open" ? "open" : "connecting",
+    phone_e164: phone_e164.trim(),
+    last_message: result.reused
+      ? `Pairing reutilizado: ${result.pairing_code}`
+      : `Pairing: ${result.pairing_code}`,
+  });
 
   logEvent("evo_pairing_code", {
     device_id,
     request_id,
     evolution_instance: name,
     phone_e164,
-    pairing_code: pairingCode,
-    connection_state: state,
-    fcm_ok: fcmPush.ok,
-    fcm_error: fcmPush.error ?? null,
-    queued: Boolean(pairingCode),
+    pairing_code: result.pairing_code,
+    connection_state: result.connection_state,
+    fcm_ok: result.fcm_ok,
+    fcm_error: result.fcm_error ?? null,
+    queued: Boolean(result.pairing_code),
+    reused: Boolean(result.reused),
+    expires_at: result.expires_at || null,
   });
 
-  res.status(pairingCode ? 200 : 502).json({
-    ok: Boolean(pairingCode),
+  res.status(200).json({
+    ok: true,
     instance: name,
-    pairing_code: pairingCode,
-    connection_state: state,
+    pairing_code: result.pairing_code,
+    connection_state: result.connection_state,
     request_id,
     device_id,
-    fcm_ok: fcmPush.ok,
-    fcm_message_id: fcmPush.messageId ?? null,
-    fcm_error: fcmPush.error ?? null,
-    delivery: fcmPush.ok ? "fcm+queue" : pairingCode ? "queue_only" : "failed",
-    raw: conn.data,
+    reused: Boolean(result.reused),
+    expires_at: result.expires_at || null,
+    fcm_ok: result.fcm_ok,
+    fcm_message_id: result.fcm_message_id ?? null,
+    fcm_error: result.fcm_error ?? null,
+    delivery: result.delivery,
   });
 });
 

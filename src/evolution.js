@@ -31,10 +31,15 @@ async function evolutionFetch(path, options = {}) {
     return { ok: false, error: "evolution_disabled" };
   }
   const url = `${EVOLUTION_BASE_URL}${path}`;
+  const timeoutMs = options.timeoutMs ?? 45_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const { timeoutMs: _ignored, ...fetchOptions } = options;
     const res = await fetch(url, {
-      ...options,
-      headers: { ...headers(), ...options.headers },
+      ...fetchOptions,
+      signal: controller.signal,
+      headers: { ...headers(), ...fetchOptions.headers },
     });
     const text = await res.text();
     let data;
@@ -48,7 +53,10 @@ async function evolutionFetch(path, options = {}) {
     }
     return { ok: true, status: res.status, data };
   } catch (err) {
-    return { ok: false, error: err.message || String(err) };
+    const msg = err.name === "AbortError" ? `timeout_${timeoutMs}ms` : err.message || String(err);
+    return { ok: false, error: msg };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -77,15 +85,17 @@ async function connectInstance(instanceName) {
 }
 
 /** GET /instance/connect/{instance}?number=5511… → pairing code (sem QR). */
-async function connectWithPairing(instanceName, phoneE164) {
+async function connectWithPairing(instanceName, phoneE164, options = {}) {
+  const { force_new = false } = options;
   const digits = String(phoneE164 || "").replace(/\D/g, "");
   if (!digits) {
     return { ok: false, error: "phone_required" };
   }
 
-  const prep = await prepareForPairing(instanceName);
+  const prep = await prepareForPairing(instanceName, { force_new });
   if (!prep.ok && prep.error !== "instance_not_found") {
     if (prep.error === "instance_already_open") return prep;
+    if (prep.error === "pairing_in_progress") return prep;
   }
 
   const path = `/instance/connect/${encodeURIComponent(instanceName)}?number=${encodeURIComponent(digits)}`;
@@ -109,6 +119,28 @@ async function logoutInstance(instanceName) {
   });
 }
 
+async function deleteInstance(instanceName) {
+  return evolutionFetch(`/instance/delete/${encodeURIComponent(instanceName)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Remove todas as instâncias Evolution (logout + delete). */
+async function deleteAllInstances() {
+  const listed = await fetchInstances();
+  if (!listed.ok) return listed;
+
+  const results = [];
+  for (const inst of listed.instances || []) {
+    const name = instanceNameFromRaw(inst);
+    if (!name) continue;
+    await logoutInstance(name).catch(() => null);
+    const del = await deleteInstance(name);
+    results.push({ instance: name, ok: del.ok, error: del.error || null });
+  }
+  return { ok: true, deleted: results, count: results.length };
+}
+
 async function restartInstance(instanceName) {
   return evolutionFetch(`/instance/restart/${encodeURIComponent(instanceName)}`, {
     method: "POST",
@@ -119,16 +151,31 @@ async function restartInstance(instanceName) {
  * Se a instância ficou em "connecting" (ex.: clicou Get QR Code no Manager),
  * a Evolution não gera pairing code — precisa logout antes.
  */
-async function prepareForPairing(instanceName) {
+async function prepareForPairing(instanceName, options = {}) {
+  const { force_new = false } = options;
   const st = await connectionState(instanceName);
   if (!st.ok) return st;
   const mapped = mapConnectionState(st.data);
   if (mapped === "open") {
     return { ok: false, error: "instance_already_open", status: 409, data: st.data };
   }
-  if (mapped === "qr") {
+  // "connecting" = código já pedido, aguardando celular — logout invalidaria o código.
+  if (mapped === "connecting" && !force_new) {
+    return {
+      ok: false,
+      error: "pairing_in_progress",
+      status: 409,
+      data: st.data,
+      previous_state: mapped,
+    };
+  }
+  if (mapped === "qr" || (mapped === "connecting" && force_new)) {
     await logoutInstance(instanceName);
     await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (mapped === "unknown" && force_new) {
+    await logoutInstance(instanceName);
+    await new Promise((r) => setTimeout(r, 1500));
   }
   return { ok: true, previous_state: mapped };
 }
@@ -147,6 +194,28 @@ async function createInstance(instanceName, phoneE164) {
   });
 }
 
+/** Delete + create; repete delete se Evolution retornar 403 (nome em uso). */
+async function ensureFreshInstance(instanceName, phoneE164, { force_new = false } = {}) {
+  if (force_new) {
+    await logoutInstance(instanceName).catch(() => null);
+    await deleteInstance(instanceName).catch(() => null);
+    await new Promise((r) => setTimeout(r, 600));
+  }
+
+  let created = await createInstance(instanceName, phoneE164);
+  if (!created.ok && (created.status === 403 || String(created.error || "").includes("already in use"))) {
+    await logoutInstance(instanceName).catch(() => null);
+    await deleteInstance(instanceName).catch(() => null);
+    await new Promise((r) => setTimeout(r, 800));
+    created = await createInstance(instanceName, phoneE164);
+  }
+
+  if (!created.ok && created.status !== 409) {
+    return { ok: false, error: "create_instance_failed", created };
+  }
+  return { ok: true, created };
+}
+
 async function connectionState(instanceName) {
   return evolutionFetch(`/instance/connectionState/${encodeURIComponent(instanceName)}`, {
     method: "GET",
@@ -163,7 +232,8 @@ function mapConnectionState(data) {
   const s = String(state).toLowerCase();
   if (s === "open" || s === "connected") return "open";
   if (s === "close" || s === "closed" || s === "disconnected") return "close";
-  if (s.includes("qr") || s === "connecting") return "qr";
+  if (s === "connecting") return "connecting";
+  if (s.includes("qr")) return "qr";
   return "unknown";
 }
 
@@ -257,9 +327,12 @@ module.exports = {
   statusInfo,
   fetchInstances,
   createInstance,
+  ensureFreshInstance,
   connectInstance,
   connectWithPairing,
   logoutInstance,
+  deleteInstance,
+  deleteAllInstances,
   restartInstance,
   prepareForPairing,
   connectionState,

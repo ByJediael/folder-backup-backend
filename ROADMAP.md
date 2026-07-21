@@ -1,9 +1,9 @@
 # ROADMAP — pool de WhatsApp + link de leads
 
-**Última atualização:** 2026-07-20  
-**Fase atual:** pairing automático (fila sem FCM) — em teste no celular  
-**Próximo passo:** fechar navegação ES do WhatsApp até a tela dos 8 campos do pairing  
-**Bloqueio atual:** automação de acessibilidade ainda não chega na tela de código (WA Colômbia em espanhol)
+**Última atualização:** 2026-07-21  
+**Fase atual:** pairing automático (fila sem FCM) — reteste no celular  
+**Próximo passo:** testar fluxo completo link-evolution → nav → código fresco → digitar  
+**Bloqueio anterior:** código pedia cedo demais (expirava/inválido); corrigido — Evolution só após nav OK
 
 ---
 

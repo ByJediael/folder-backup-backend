@@ -160,6 +160,13 @@ async function sendMacroHomePush(deviceId, requestId) {
   });
 }
 
+async function sendMacroForceStopWhatsappPush(deviceId, requestId) {
+  return sendDataPush(deviceId, {
+    action: "macro_force_stop_whatsapp",
+    request_id: requestId,
+  });
+}
+
 async function sendMacroOpenWhatsappPush(deviceId, requestId) {
   return sendDataPush(deviceId, {
     action: "macro_open_whatsapp",
@@ -224,6 +231,7 @@ module.exports = {
   sendSubmitPairingCodePush,
   sendMacroHomePush,
   sendMacroOpenWhatsappPush,
+  sendMacroForceStopWhatsappPush,
   sendMacroNavigateLinkPhonePush,
   sendMacroInstallWhatsappPush,
   fcmStatus,
