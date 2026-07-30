@@ -1,0 +1,55 @@
+{
+  "name": "WhatsApp — verificar números Colômbia (Hero SMS)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "hero_api_key", "name": "hero_api_key", "value": "3e6c75e6f74A5cA0f23f5d8575367643", "type": "string" },
+            { "id": "hero_country", "name": "hero_country", "value": "34", "type": "string" }
+          ]
+        }
+      },
+      "id": "set-vars",
+      "name": "Variáveis",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=getNumbersStatus&api_key={{ $json.hero_api_key }}&country={{ $json.hero_country }}",
+        "options": {}
+      },
+      "id": "get-status",
+      "name": "Consultar Estoque",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n// wa_0 representa o estoque do WhatsApp sem redirecionamento\nconst waCount = data.wa_0 ?? data.wa ?? 0;\nreturn [{\n  json: {\n    pais: \"Colômbia (34)\",\n    servico: \"WhatsApp\",\n    numeros_disponiveis: waCount\n  }\n}];"
+      },
+      "id": "parse-stock",
+      "name": "Processar Estoque",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Manual": { "main": [[{ "node": "Variáveis", "type": "main", "index": 0 }]] },
+    "Variáveis": { "main": [[{ "node": "Consultar Estoque", "type": "main", "index": 0 }]] },
+    "Consultar Estoque": { "main": [[{ "node": "Processar Estoque", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

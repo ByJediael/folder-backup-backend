@@ -16,10 +16,10 @@
             { "id": "device_id", "name": "device_id", "value": "mi9-se", "type": "string" },
             { "id": "session_label", "name": "session_label", "value": "numero-hero-1", "type": "string" },
             { "id": "display_name", "name": "display_name", "value": "Conta Backup", "type": "string" },
-            { "id": "hero_api_key", "name": "hero_api_key", "value": "SUA_API_KEY_HERO", "type": "string" },
+            { "id": "hero_api_key", "name": "hero_api_key", "value": "3e6c75e6f74A5cA0f23f5d8575367643", "type": "string" },
             { "id": "hero_service", "name": "hero_service", "value": "wa", "type": "string" },
-            { "id": "hero_country", "name": "hero_country", "value": "73", "type": "string" },
-            { "id": "backend_base", "name": "backend_base", "value": "http://192.168.1.9:8080", "type": "string" },
+            { "id": "hero_country", "name": "hero_country", "value": "34", "type": "string" },
+            { "id": "backend_base", "name": "backend_base", "value": "https://backup.jediael.uk", "type": "string" },
             { "id": "backend_token", "name": "backend_token", "value": "12345678", "type": "string" }
           ]
         }
@@ -32,7 +32,7 @@
     },
     {
       "parameters": {
-        "url": "=https://hero-sms.com/stubs/handler_api.php?action=getNumber&api_key={{ $json.hero_api_key }}&service={{ $json.hero_service }}&country={{ $json.hero_country }}",
+        "url": "=https://hero-sms.com/stubs/handler_api.php?action=getNumberV2&api_key={{ $json.hero_api_key }}&service={{ $json.hero_service }}&country={{ $json.hero_country }}",
         "options": {}
       },
       "id": "hero-get-number",
@@ -40,11 +40,11 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [440, 0],
-      "notes": "Resposta típica: ACCESS_NUMBER:12345:5511999999999 — ajuste parse no próximo nó"
+      "notes": "Usando getNumberV2 com resposta em formato JSON"
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json.data ?? $input.first().json.body ?? '';\nconst text = typeof raw === 'string' ? raw : JSON.stringify(raw);\nlet activationId = '';\nlet phone = '';\nif (text.includes('ACCESS_NUMBER')) {\n  const parts = text.split(':');\n  activationId = parts[1] || '';\n  phone = parts[2] || '';\n}\nif (!phone.startsWith('+')) phone = '+' + phone.replace(/\\D/g, '');\nconst vars = $('Variáveis').first().json;\nreturn [{\n  json: {\n    ...vars,\n    activation_id: activationId,\n    phone_e164: phone,\n    request_id: 'reg-' + Math.random().toString(36).slice(2, 10)\n  }\n}];"
+        "jsCode": "const response = $input.first().json;\nconst activationId = response.activationId || '';\nlet phone = response.phoneNumber || '';\nif (phone && !phone.startsWith('+')) {\n  phone = '+' + phone.replace(/\\D/g, '');\n}\nconst vars = $('Variáveis').first().json;\nreturn [{\n  json: {\n    ...vars,\n    activation_id: activationId,\n    phone_e164: phone,\n    request_id: 'reg-' + Math.random().toString(36).slice(2, 10)\n  }\n}];"
       },
       "id": "parse-number",
       "name": "Parse número Hero",

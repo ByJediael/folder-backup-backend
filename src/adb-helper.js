@@ -53,26 +53,65 @@ async function isWhatsappRunning(serial) {
 
 /**
  * Force-stop agressivo + remove dos apps recentes + verificação.
+ * Preferência: arrastar card para cima (Motorola / Android moderno).
  * @param {string} [serial] — adb serial; omitir = device padrão
  */
 async function dismissWhatsappFromRecents(serial) {
   const base = serial ? ["-s", serial] : [];
+  const sizeRes = await runAdb([...base, "shell", "wm", "size"]);
+  const match = String(sizeRes.stdout || "").match(/(\d+)x(\d+)/);
+  const width = Number(match?.[1] || 1080);
+  const height = Number(match?.[2] || 2400);
+  const cx = Math.round(width / 2);
+  const yStart = Math.round(height * 0.72);
+  const yEnd = Math.round(height * 0.08);
+
   await runAdb([...base, "shell", "input", "keyevent", "3"]);
   await new Promise((r) => setTimeout(r, 400));
-  // Botão quadrado — lista de apps recentes
+  // Botão quadrado / recentes
   await runAdb([...base, "shell", "input", "keyevent", "187"]);
   await new Promise((r) => setTimeout(r, 1200));
-  // Botão X no canto do card (Samsung 720p)
-  await runAdb([...base, "shell", "input", "tap", "670", "320"]);
+  // 1) Arrastar para cima (Moto / gesture)
+  await runAdb([
+    ...base,
+    "shell",
+    "input",
+    "swipe",
+    String(cx),
+    String(yStart),
+    String(cx),
+    String(yEnd),
+    "380",
+  ]);
   await new Promise((r) => setTimeout(r, 500));
-  // Arrastar card para o lado (Samsung)
-  await runAdb([...base, "shell", "input", "swipe", "520", "560", "20", "560", "280"]);
-  await new Promise((r) => setTimeout(r, 450));
-  // Arrastar card para cima (fallback)
-  await runAdb([...base, "shell", "input", "swipe", "360", "750", "360", "120", "300"]);
+  // 2) Segunda passada no card
+  await runAdb([
+    ...base,
+    "shell",
+    "input",
+    "swipe",
+    String(cx),
+    String(Math.round(height * 0.65)),
+    String(cx),
+    String(Math.round(height * 0.05)),
+    "350",
+  ]);
+  await new Promise((r) => setTimeout(r, 400));
+  // 3) Fallback lateral (Samsung antigo)
+  await runAdb([
+    ...base,
+    "shell",
+    "input",
+    "swipe",
+    String(Math.round(width * 0.75)),
+    String(Math.round(height * 0.55)),
+    String(Math.round(width * 0.05)),
+    String(Math.round(height * 0.55)),
+    "280",
+  ]);
   await new Promise((r) => setTimeout(r, 400));
   await runAdb([...base, "shell", "input", "keyevent", "3"]);
-  return { ok: true };
+  return { ok: true, width, height };
 }
 
 async function forceStopWhatsapp(serial) {
@@ -177,6 +216,68 @@ async function tapScamConnectButton(serial) {
   return { ok: true };
 }
 
+/** Lista devices `adb devices -l`. */
+async function listDevices() {
+  const res = await runAdb(["devices", "-l"]);
+  const lines = res.stdout
+    .split(/\r?\n/)
+    .slice(1)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const devices = lines
+    .map((line) => {
+      const parts = line.split(/\s+/);
+      const serial = parts[0];
+      const state = parts[1] || "";
+      const model = (line.match(/model:(\S+)/) || [])[1] || null;
+      return { serial, state, model, line };
+    })
+    .filter((d) => d.serial);
+  return { ok: res.ok, devices, raw: res.stdout };
+}
+
+/** `adb reverse tcp:LOCAL tcp:DEVICE` — APK local → PC :8080. */
+async function reversePort(localPort = 8080, devicePort = 8080, serial) {
+  const base = serial ? ["-s", serial] : [];
+  const res = await runAdb([
+    ...base,
+    "reverse",
+    `tcp:${Number(localPort)}`,
+    `tcp:${Number(devicePort)}`,
+  ]);
+  return { ok: res.ok, localPort, devicePort, stdout: res.stdout, error: res.error };
+}
+
+/** Abre WhatsApp Business (launcher). */
+async function openWhatsapp(serial) {
+  const base = serial ? ["-s", serial] : [];
+  const res = await runAdb([
+    ...base,
+    "shell",
+    "monkey",
+    "-p",
+    WA_PKG,
+    "-c",
+    "android.intent.category.LAUNCHER",
+    "1",
+  ]);
+  return { ok: res.ok, stdout: res.stdout, error: res.error };
+}
+
+/** Abre o Folder Backup Agent. */
+async function openBackupAgent(serial) {
+  const base = serial ? ["-s", serial] : [];
+  const res = await runAdb([
+    ...base,
+    "shell",
+    "am",
+    "start",
+    "-n",
+    "com.folderbackup.agent/.MainActivity",
+  ]);
+  return { ok: res.ok, stdout: res.stdout, error: res.error };
+}
+
 module.exports = {
   WA_PKG,
   resolveAdbPath,
@@ -187,4 +288,8 @@ module.exports = {
   typePairingCode,
   tapScamOkButton,
   tapScamConnectButton,
+  listDevices,
+  reversePort,
+  openWhatsapp,
+  openBackupAgent,
 };
